@@ -1,5 +1,4 @@
---require 'cunn'
---local ffi=require 'ffi'
+
 require 'lfs'
 
 function getFileListRecursive(dir)

@@ -154,17 +154,8 @@ function trainBatch(inputsCPU, labelsCPU)
         fullNetwork:backward(inputs, zeroGradOutputs)
         
         loss = contentLossModule.loss
-        for i, mod in ipairs(styleLossModules) do
-            loss = loss + mod.loss
-            
-            if totalBatchCount % 1000 == 0 then
-                for b = 1, opt.batchSize do
-                    --saveTensor(mod.G[b], opt.outDir .. 'sample' .. totalBatchCount .. '_style' .. i .. '_b' .. b .. '.txt')
-                end
-            end
-        end
         
-        vggTotalNetwork:zeroGradParameters()
+        vggContentNetwork:zeroGradParameters()
         
         return loss, gradParameters
     end
@@ -178,11 +169,8 @@ function trainBatch(inputsCPU, labelsCPU)
         epoch, batchNumber, opt.epochSize, timer:time().real, loss,
         optimState.learningRate, dataLoadingTime))
         
-    print(string.format('  Content loss: %f', contentLossModule.loss))
-    for i, mod in ipairs(styleLossModules) do
-        print(string.format('  Style %d loss: %f', i, mod.loss))
-    end
-
+    --print(string.format('  Content loss: %f', contentLossModule.loss))
+    
     dataTimer:reset()
     totalBatchCount = totalBatchCount + 1
 end

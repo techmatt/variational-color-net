@@ -5,6 +5,8 @@ require 'cudnn'
 require 'optim'
 require 'loadcaffe'
 
+local useResidualBlock = true
+
 paths.dofile('nnModules.lua')
 
 function addConvElement(network,iChannels,oChannels,size,stride,padding)
@@ -49,73 +51,37 @@ function addResidualBlock(network,iChannels,oChannels,size,stride,padding)
 end
 
 function createVGG()
-    local styleImage = image.load(opt.styleImage, 3)
-    styleImage = image.scale(styleImage, opt.cropSize, 'bilinear')
-    local styleImageCaffe = caffePreprocess(styleImage):float()
-  
-    local styleBatch = torch.FloatTensor(opt.batchSize, 3, styleImageCaffe:size()[2], styleImageCaffe:size()[3])
-    for i = 1, opt.batchSize do
-        styleBatch[i] = styleImageCaffe:clone()
-    end
-    
     local contentBatch = torch.FloatTensor(opt.batchSize, 3, opt.cropSize, opt.cropSize)
     
-    local styleLossModules = {}
     local contentLossModule = {}
+    
     local vggIn = loadcaffe.load('models/VGG_ILSVRC_19_layers_deploy.prototxt',
                                  'models/VGG_ILSVRC_19_layers.caffemodel', 'nn'):float()
-
     local vggContentOut = nn.Sequential()
-    local vggTotalOut = nn.Sequential()
-
-    local vggDepth = 25
+    
     local contentDepth = 9
     
     local contentName = 'relu2_2'
     
-    local styleWeights = {}
-    styleWeights['relu1_2'] = 0.5
-    styleWeights['relu2_2'] = 0.5
-    styleWeights['relu3_3'] = 0.25
-    styleWeights['relu4_3'] = 2.0
-    
-    for i = 1, vggDepth do
+    for i = 1, contentDepth do
         local layer = vggIn:get(i)
         local name = layer.name
         --print('layer ' .. i .. ': ' .. name)
         local layerType = torch.type(layer)
         
-        vggTotalOut:add(layer)
-        --local isPooling = (layer_type == 'cudnn.SpatialMaxPooling' or layer_type == 'nn.SpatialMaxPooling')
-
-        if i <= contentDepth then
-            vggContentOut:add(layer)
-            if name == contentName then
-                print("Setting up content layer" .. i .. ": " .. name)
-                local contentTarget = vggTotalOut:forward(contentBatch):clone()
-                local norm = false
-                contentLossModule = nn.ContentLoss(opt.contentWeight, contentTarget, norm):float()
-                vggTotalOut:add(contentLossModule)
-            end
-        end
-        
-        if styleWeights[name] then
-            print("Setting up style layer" .. i .. ": " .. name)
-            local gram = GramMatrixSingleton():float()
-            local styleTargetFeatures = vggTotalOut:forward(styleBatch):clone()
-            local styleTargetGram = gram:forward(styleTargetFeatures[1]):clone()
-            styleTargetGram:div(styleTargetFeatures[1]:nElement())
+        vggContentOut:add(layer)
+        if name == contentName then
+            print("Setting up content layer" .. i .. ": " .. name)
+            local contentTarget = vggContentOut:forward(contentBatch):clone()
             local norm = false
-            local styleLossModule = nn.StyleLoss(opt.styleWeight * styleWeights[name], styleTargetGram, norm, opt.batchSize):float()
-            vggTotalOut:add(styleLossModule)
-            styleLossModules[#styleLossModules + 1] = styleLossModule
-            --saveTensor(styleTargetGram, opt.outDir .. 'styleTargetGram_' .. name .. '.txt')
+            contentLossModule = nn.ContentLoss(opt.contentWeight, contentTarget, norm):float()
+            vggContentOut:add(contentLossModule)
         end
     end
     
     vggIn = nil
     collectgarbage()
-    return vggContentOut, vggTotalOut, contentLossModule, styleLossModules
+    return vggContentOut, contentLossModule
 end
 
 function createModel()
@@ -125,22 +91,22 @@ function createModel()
     local transformNetwork = nn.Sequential()
     local fullNetwork = nn.Sequential()
    
-    addConvElement(transformNetwork, 3, 32, 9, 1, 0)
-    addConvElement(transformNetwork, 32, 64, 3, 2, 0)
-    addConvElement(transformNetwork, 64, 128, 3, 2, 0)
+    addConvElement(transformNetwork, 3, 32, 9, 1, 4)
+    addConvElement(transformNetwork, 32, 64, 3, 2, 1)
+    addConvElement(transformNetwork, 64, 128, 3, 2, 1)
 
-    addResidualBlock(transformNetwork, 128, 128, 3, 1, 0)
-    addResidualBlock(transformNetwork, 128, 128, 3, 1, 0)
-    addResidualBlock(transformNetwork, 128, 128, 3, 1, 0)
-    addResidualBlock(transformNetwork, 128, 128, 3, 1, 0)
-    addResidualBlock(transformNetwork, 128, 128, 3, 1, 0)
+    addResidualBlock(transformNetwork, 128, 128, 3, 1, 1)
+    addResidualBlock(transformNetwork, 128, 128, 3, 1, 1)
+    addResidualBlock(transformNetwork, 128, 128, 3, 1, 1)
+    addResidualBlock(transformNetwork, 128, 128, 3, 1, 1)
+    addResidualBlock(transformNetwork, 128, 128, 3, 1, 1)
 
-    addUpConvElement(transformNetwork, 128, 64, 3, 2, 0, 0)
-    addUpConvElement(transformNetwork, 64, 32, 3, 2, 0, 0)
+    addUpConvElement(transformNetwork, 128, 64, 3, 2, 1, 0)
+    addUpConvElement(transformNetwork, 64, 32, 3, 2, 1, 0)
 
-    transformNetwork:add(nn.SpatialConvolution(32, 3, 3, 3, 1, 1, 0, 0))
+    transformNetwork:add(nn.SpatialConvolution(32, 3, 3, 3, 1, 1, 1, 1))
 
-    local vggContentNetwork, vggTotalNetwork, contentLossModule, styleLossModules = createVGG()
+    local vggContentNetwork, contentLossModule = createVGG()
     
     fullNetwork:add(transformNetwork)
     
@@ -151,7 +117,7 @@ function createModel()
         fullNetwork:add(tvModule)
     end
     
-    fullNetwork:add(vggTotalNetwork)
+    fullNetwork:add(vggContentNetwork)
 
-    return fullNetwork, transformNetwork, vggTotalNetwork, vggContentNetwork, TVLossModule, contentLossModule, styleLossModules
+    return fullNetwork, transformNetwork, vggContentNetwork, contentLossModule
 end

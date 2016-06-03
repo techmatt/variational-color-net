@@ -50,7 +50,7 @@ end
 function sampleBatch(imageLoader)
     -- pick an index of the datapoint to load next
     local reflectionPadding = 50
-    local batchInputs = torch.FloatTensor(opt.batchSize, 3, opt.cropSize + reflectionPadding * 2, opt.cropSize + reflectionPadding * 2)
+    local batchInputs = torch.FloatTensor(opt.batchSize, 3, opt.cropSize, opt.cropSize)
     local batchLabels = torch.FloatTensor(opt.batchSize, 3, opt.cropSize, opt.cropSize)
     
     for i = 1, opt.batchSize do
@@ -63,7 +63,7 @@ function sampleBatch(imageLoader)
                 local imgTarget = caffePreprocess(imgInput:clone())
                 
                 imgInput:add(-0.5)
-                imgInput = reflectionPadImage(imgInput, reflectionPadding)
+                --imgInput = reflectionPadImage(imgInput, reflectionPadding)
                 
                 -- Grayscale image
                 --local imgInput = torch.FloatTensor(1, opt.cropSize, opt.cropSize):zero()
