@@ -11,19 +11,22 @@ function M.parse(arg)
     ------------ Network loss options ---------------
     cmd:option('-outDir', 'out/', 'TODO')
     cmd:option('-imageList', 'data/imageListCOCO.txt', 'TODO')
-    cmd:option('-batchSize', 4, 'mini-batch size (1 = pure stochastic)')
+    cmd:option('-batchSize', 8, 'mini-batch size (1 = pure stochastic)')
     cmd:option('-imageSize', 256, 'Smallest side of the resized image')
     cmd:option('-cropSize', 256, 'Height and Width of image crop to be used as input layer')
     
     cmd:option('-contentWeight', 1.0, 'TODO')
+    cmd:option('-pixelWeight', 10.0, 'TODO')
     cmd:option('-TVWeight', 1e-4, 'TODO')
+    
+    cmd:option('-pretrainedTransformModel', 'out/models/transform14.ty', 'TODO')
     
     cmd:option('-manualSeed', 2, 'Manually set RNG seed')
     cmd:option('-GPU', 2, 'Default preferred GPU')
     
     ------------- Training options --------------------
-    cmd:option('-epochCount',         20,    'Number of total epochs to run')
-    cmd:option('-epochSize',       1000, 'Number of batches per epoch')
+    cmd:option('-epochCount',         100,    'Number of total epochs to run')
+    cmd:option('-epochSize',       10000, 'Number of batches per epoch')
     cmd:option('-epochNumber',     1,     'Manual epoch number (useful on restarts)')
     
     ------------- Data options ------------------------

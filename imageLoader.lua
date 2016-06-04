@@ -50,31 +50,28 @@ end
 function sampleBatch(imageLoader)
     -- pick an index of the datapoint to load next
     local reflectionPadding = 50
-    local batchInputs = torch.FloatTensor(opt.batchSize, 3, opt.cropSize, opt.cropSize)
+    local batchInputs = torch.FloatTensor(opt.batchSize, 1, opt.cropSize, opt.cropSize)
     local batchLabels = torch.FloatTensor(opt.batchSize, 3, opt.cropSize, opt.cropSize)
     
     for i = 1, opt.batchSize do
         local imageFilename = imageLoader.imageList[ math.random( #imageLoader.imageList ) ]
         donkeys:addjob(
             function()
-                local imgInput = loadAndCropImage(imageFilename)
-                --local imgTarget = imgInput
-                
-                local imgTarget = caffePreprocess(imgInput:clone())
-                
-                imgInput:add(-0.5)
-                --imgInput = reflectionPadImage(imgInput, reflectionPadding)
-                
+                local sourceImg = loadAndCropImage(imageFilename)
+
                 -- Grayscale image
-                --local imgInput = torch.FloatTensor(1, opt.cropSize, opt.cropSize):zero()
-                --imgInput:add(0.299, imgTarget:select(1, 1))
-                --imgInput:add(0.587, imgTarget:select(1, 2))
-                --imgInput:add(0.114, imgTarget:select(1, 3))
+                local imgGray = torch.FloatTensor(1, opt.cropSize, opt.cropSize):zero()
+                imgGray:add(0.299, sourceImg:select(1, 1))
+                imgGray:add(0.587, sourceImg:select(1, 2))
+                imgGray:add(0.114, sourceImg:select(1, 3))
+                imgGray:add(-0.5)
                 
-                return imgInput, imgTarget
+                local imgTarget = caffePreprocess(sourceImg:clone())
+                
+                return imgGray, imgTarget
             end,
-            function(imgInput, imgTarget)
-                batchInputs[i] = imgInput
+            function(imgGray, imgTarget)
+                batchInputs[i] = imgGray
                 batchLabels[i] = imgTarget
             end)
     end

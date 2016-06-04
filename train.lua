@@ -28,11 +28,12 @@ local optimState = {
 local function paramsForEpoch(epoch)
     local regimes = {
         -- start, end,    LR,   WD,
-        {  1,     20,   1e-3,   0 }, --5e-4
-        { 21,     29,   5e-4,   0 },
-        { 30,     43,   2e-4,   0 },
-        { 44,     52,   5e-5,   0 },
-        { 53,    1e8,   1e-5,   0 },
+        {  1,     3,   2e-4,   0 },
+        {  4,     20,   1e-4,   0 },
+        { 21,     29,   5e-5,   0 },
+        { 30,     43,   2e-5,   0 },
+        { 44,     52,   5e-6,   0 },
+        { 53,    1e8,   1e-6,   0 },
     }
 
     for _, row in ipairs(regimes) do
@@ -135,6 +136,7 @@ function trainBatch(inputsCPU, labelsCPU)
     local loss, contentTargets
     feval = function(x)
         contentTargets = vggContentNetwork:forward(labels):clone()
+        pixelLossModule.target = labels
         contentLossModule.target = contentTargets
         
         if totalBatchCount % 100 == 0 then
@@ -145,15 +147,15 @@ function trainBatch(inputsCPU, labelsCPU)
             local outClone = transformNetwork:forward(inputs)[1]:clone()
             outClone = caffeDeprocess(outClone)
             
-            image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_in.png', inClone)
-            image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_out.png', outClone)
+            image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_in.jpg', inClone)
+            image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_out.jpg', outClone)
         end
         
         fullNetwork:zeroGradParameters()
         fullNetwork:forward(inputs)
         fullNetwork:backward(inputs, zeroGradOutputs)
         
-        loss = contentLossModule.loss
+        loss = contentLossModule.loss + pixelLossModule.loss
         
         vggContentNetwork:zeroGradParameters()
         
@@ -169,7 +171,8 @@ function trainBatch(inputsCPU, labelsCPU)
         epoch, batchNumber, opt.epochSize, timer:time().real, loss,
         optimState.learningRate, dataLoadingTime))
         
-    --print(string.format('  Content loss: %f', contentLossModule.loss))
+    print(string.format('  Pixel loss: %f', pixelLossModule.loss))
+    print(string.format('  Content loss: %f', contentLossModule.loss))
     
     dataTimer:reset()
     totalBatchCount = totalBatchCount + 1
