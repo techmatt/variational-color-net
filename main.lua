@@ -4,7 +4,6 @@
 --
 local printModel = false
 describeNets = true
-useResidualBlock = false
 
 require 'torch'
 require 'cutorch'
@@ -27,9 +26,8 @@ torch.manualSeed(opt.manualSeed)
 paths.dofile('util.lua')
 paths.dofile('torchUtil.lua')
 
---local allImages = getFileListRecursive('/home/mdfisher/ssd2/ImageNet/CLS-LOC/train/')
---local allImages = getFileListRecursive('/home/mdfisher/ssd2/COCO/train2014/')
---writeAllLines(opt.imageList, allImages)
+local allImages = getFileListRecursive('/home/dritchie/mscoco/')
+writeAllLines(opt.imageList, allImages)
 
 paths.dofile('loadModel.lua')
 paths.dofile('imageLoader.lua')
