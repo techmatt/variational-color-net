@@ -71,7 +71,8 @@ function train(imageLoader)
     lossEpoch = 0
     for i = 1, opt.epochSize do
         local batch = sampleBatch(imageLoader)
-        trainBatch(batch.inputs, batch.labels)
+        --trainBatch(batch.inputs, batch.labels)
+        trainBatchGraph(batch.inputs, batch.labels)
     end
     
     cutorch.synchronize()
@@ -173,6 +174,67 @@ function trainBatch(inputsCPU, labelsCPU)
         
     print(string.format('  Pixel loss: %f', pixelLossModule.loss))
     print(string.format('  Content loss: %f', contentLossModule.loss))
+    
+    dataTimer:reset()
+    totalBatchCount = totalBatchCount + 1
+end
+
+
+
+-- 4. trainBatch - Used by train() to train a single batch after the data is loaded.
+function trainBatchGraph(inputsCPU, labelsCPU)
+    cutorch.synchronize()
+    collectgarbage()
+    local dataLoadingTime = dataTimer:time().real
+    timer:reset()
+
+    -- transfer over to GPU
+    inputs:resize(inputsCPU:size()):copy(inputsCPU)
+    labels:resize(labelsCPU:size()):copy(labelsCPU)
+
+    local pixelLoss, contentLoss, totalLoss
+    feval = function(x)
+        local contentTargets = model.vggNet:forward(labels):clone()
+        
+        if totalBatchCount % 100 == 0 then
+            local inClone = labels[1]:clone()
+            --inClone:add(0.5)
+            inClone = caffeDeprocess(inClone)
+            
+            local outClone = model.transformNet:forward(inputs)[1]:clone()
+            outClone = caffeDeprocess(outClone)
+            
+            image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_in.jpg', inClone)
+            image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_out.jpg', outClone)
+        end
+        
+        model.graph:zeroGradParameters()
+        
+        local outputLoss = model.graph:forward({inputs, labels, contentTargets})
+        
+        pixelLoss = outputLoss[1][1]
+        contentLoss = outputLoss[2][1]
+        
+        model.graph:backward({inputs, labels, contentTargets}, outputLoss)
+        
+        totalLoss = pixelLoss + contentLoss
+        
+        model.vggNet:zeroGradParameters()
+        
+        return loss, gradParameters
+    end
+    optim.adam(feval, parameters, optimState)
+
+    cutorch.synchronize()
+    batchNumber = batchNumber + 1
+    lossEpoch = lossEpoch + totalLoss
+
+    print(('Epoch: [%d][%d/%d]\tTime %.3f Err %.4f LR %.0e DataLoadingTime %.3f'):format(
+        epoch, batchNumber, opt.epochSize, timer:time().real, totalLoss,
+        optimState.learningRate, dataLoadingTime))
+        
+    print(string.format('  Pixel loss: %f', pixelLoss))
+    print(string.format('  Content loss: %f', contentLoss))
     
     dataTimer:reset()
     totalBatchCount = totalBatchCount + 1

@@ -2,6 +2,7 @@
 require 'nn'
 require 'cunn'
 require 'cudnn'
+require 'cutorch'
 require 'optim'
 require 'nngraph'
 require 'loadcaffe'
@@ -91,18 +92,20 @@ function createModel()
     local r = {}
     local transformNetwork = nn.Sequential()
     local fullNetwork = nn.Sequential()
-   
+    
     addConvElement(transformNetwork, 1, 32, 9, 1, 4)
     addConvElement(transformNetwork, 32, 64, 3, 2, 1)
     addConvElement(transformNetwork, 64, 128, 3, 2, 1)
 
     addResidualBlock(transformNetwork, 128, 128, 3, 1, 1)
     addResidualBlock(transformNetwork, 128, 128, 3, 1, 1)
+    
     addResidualBlock(transformNetwork, 128, 128, 3, 1, 1)
     addResidualBlock(transformNetwork, 128, 128, 3, 1, 1)
     addResidualBlock(transformNetwork, 128, 128, 3, 1, 1)
     addResidualBlock(transformNetwork, 128, 128, 3, 1, 1)
     addResidualBlock(transformNetwork, 128, 128, 3, 1, 1)
+    
     addResidualBlock(transformNetwork, 128, 128, 3, 1, 1)
     addResidualBlock(transformNetwork, 128, 128, 3, 1, 1)
 
@@ -169,7 +172,7 @@ function createModelGraph()
     r.grayscaleImage = nn.Identity()():annotate{name = 'grayscaleImage'}
     r.colorImage = nn.Identity()():annotate{name = 'colorImage'}
     r.targetContent = nn.Identity()():annotate{name = 'targetContent'}
-    r.targetCategories = nn.Identity()():annotate{name = 'targetCategories'}
+    --r.targetCategories = nn.Identity()():annotate{name = 'targetCategories'}
     
     r.transformNet = nn.Sequential()
     
@@ -213,6 +216,14 @@ function createModelGraph()
 
     r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent}, {r.pixelLoss, r.contentLoss})
     
+    cudnn.convert(r.graph, cudnn)
+    cudnn.convert(r.transformNet, cudnn)
+    cudnn.convert(r.vggNet, cudnn)
+    
+    r.graph = r.graph:cuda()
+    r.transformNet = r.transformNet:cuda()
+    r.vggNet = r.vggNet:cuda()
+
     --graph.dot(r.graph.fg, 'graph', 'graph')
     
     return r

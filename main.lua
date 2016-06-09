@@ -26,8 +26,8 @@ torch.manualSeed(opt.manualSeed)
 paths.dofile('util.lua')
 paths.dofile('torchUtil.lua')
 
-local allImages = getFileListRecursive('/home/dritchie/mscoco/')
-writeAllLines(opt.imageList, allImages)
+--local allImages = getFileListRecursive('/home/dritchie/mscoco/')
+--writeAllLines(opt.imageList, allImages)
 
 paths.dofile('loadModel.lua')
 paths.dofile('imageLoader.lua')
@@ -35,7 +35,7 @@ paths.dofile('threadPool.lua')
 
 --print(opt)
 
---graphThing = createModelGraph()
+model = createModelGraph()
 
 fullNetwork, transformNetwork, vggContentNetwork, contentLossModule, pixelLossModule = createModel()
 cudnn.convert(fullNetwork, cudnn)
@@ -64,7 +64,7 @@ paths.dofile('train.lua')
 
 epoch = 1
 
-for i=1,opt.epochCount do
+for i = 1, opt.epochCount do
    train(imageLoader)
    epoch = epoch + 1
 end
