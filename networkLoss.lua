@@ -37,6 +37,8 @@ paths.dofile('threadPool.lua')
 
 --print(opt)
 
+--graphThing = createModelGraph()
+
 fullNetwork, transformNetwork, vggContentNetwork, contentLossModule, pixelLossModule = createModel()
 cudnn.convert(fullNetwork, cudnn)
 cudnn.convert(vggContentNetwork, cudnn)

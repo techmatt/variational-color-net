@@ -3,6 +3,7 @@ require 'nn'
 require 'cunn'
 require 'cudnn'
 require 'optim'
+require 'nngraph'
 require 'loadcaffe'
 
 local useResidualBlock = true
@@ -134,4 +135,84 @@ function createModel()
     fullNetwork:add(vggContentNetwork)
 
     return fullNetwork, transformNetwork, vggContentNetwork, contentLossModule, pixelLossModule
+end
+
+function createVGGGraph()
+    local contentBatch = torch.FloatTensor(opt.batchSize, 3, opt.cropSize, opt.cropSize)
+    
+    local vggIn = loadcaffe.load('models/VGG_ILSVRC_19_layers_deploy.prototxt',
+                                 'models/VGG_ILSVRC_19_layers.caffemodel', 'nn'):float()
+    local vggContentOut = nn.Sequential()
+    
+    local contentDepth = 9
+    
+    local contentName = 'relu2_2'
+    
+    for i = 1, contentDepth do
+        local layer = vggIn:get(i)
+        local name = layer.name
+        --print('layer ' .. i .. ': ' .. name)
+        local layerType = torch.type(layer)
+        
+        vggContentOut:add(layer)
+    end
+    
+    vggIn = nil
+    collectgarbage()
+    return vggContentOut
+end
+
+function createModelGraph()
+    print('Creating model')
+   
+    local r = {}
+    r.grayscaleImage = nn.Identity()():annotate{name = 'grayscaleImage'}
+    r.colorImage = nn.Identity()():annotate{name = 'colorImage'}
+    r.targetContent = nn.Identity()():annotate{name = 'targetContent'}
+    
+    r.transformNet = nn.Sequential()
+    
+    addConvElement(r.transformNet, 1, 32, 9, 1, 4)
+    addConvElement(r.transformNet, 32, 64, 3, 2, 1)
+    addConvElement(r.transformNet, 64, 128, 3, 2, 1)
+
+    addResidualBlock(r.transformNet, 128, 128, 3, 1, 1)
+    addResidualBlock(r.transformNet, 128, 128, 3, 1, 1)
+    addResidualBlock(r.transformNet, 128, 128, 3, 1, 1)
+    addResidualBlock(r.transformNet, 128, 128, 3, 1, 1)
+    addResidualBlock(r.transformNet, 128, 128, 3, 1, 1)
+    addResidualBlock(r.transformNet, 128, 128, 3, 1, 1)
+    addResidualBlock(r.transformNet, 128, 128, 3, 1, 1)
+    addResidualBlock(r.transformNet, 128, 128, 3, 1, 1)
+    addResidualBlock(r.transformNet, 128, 128, 3, 1, 1)
+
+    addUpConvElement(r.transformNet, 128, 64, 3, 2, 1, 1)
+    addUpConvElement(r.transformNet, 64, 32, 3, 2, 1, 1)
+
+    r.transformNet:add(nn.SpatialConvolution(32, 3, 3, 3, 1, 1, 1, 1))
+
+    if opt.TVWeight > 0 then
+        print('adding TV loss')
+        local tvModule = nn.TVLoss(opt.TVWeight, opt.batchSize):float()
+        tvModule:cuda()
+        r.transformNet:add(tvModule)
+    end
+    
+    r.transformedImage = r.transformNet(r.grayscaleImage):annotate{name = 'transformedImage'}
+
+    print('adding pixel loss')
+    r.pixelLoss = nn.MSECriterion()({r.transformedImage, r.colorImage}):annotate{name = 'pixelLoss'}
+
+    r.vggNet = createVGGGraph()
+    
+    r.transformedContent = r.vggNet(r.transformedImage):annotate{name = 'transformedContent'}
+    
+    print('adding content loss')
+    r.contentLoss = nn.MSECriterion()({r.transformedContent, r.targetContent}):annotate{name = 'contentLoss'}
+
+    r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent}, {r.pixelLoss, r.contentLoss})
+    
+    --graph.dot(r.graph.fg, 'graph', 'graph')
+    
+    return r
 end
