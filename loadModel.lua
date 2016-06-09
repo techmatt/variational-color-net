@@ -169,6 +169,7 @@ function createModelGraph()
     r.grayscaleImage = nn.Identity()():annotate{name = 'grayscaleImage'}
     r.colorImage = nn.Identity()():annotate{name = 'colorImage'}
     r.targetContent = nn.Identity()():annotate{name = 'targetContent'}
+    r.targetCategories = nn.Identity()():annotate{name = 'targetCategories'}
     
     r.transformNet = nn.Sequential()
     
