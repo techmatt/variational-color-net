@@ -179,7 +179,7 @@ function trainBatch(inputsCPU, labelsCPU)
     totalBatchCount = totalBatchCount + 1
 end
 
-
+local parametersGraph, gradParametersGraph = model.graph:getParameters()
 
 -- 4. trainBatch - Used by train() to train a single batch after the data is loaded.
 function trainBatchGraph(inputsCPU, labelsCPU)
@@ -221,9 +221,9 @@ function trainBatchGraph(inputsCPU, labelsCPU)
         
         model.vggNet:zeroGradParameters()
         
-        return loss, gradParameters
+        return totalLoss, gradParametersGraph
     end
-    optim.adam(feval, parameters, optimState)
+    optim.adam(feval, parametersGraph, optimState)
 
     cutorch.synchronize()
     batchNumber = batchNumber + 1
