@@ -1,11 +1,13 @@
 -- Done once at the beginning of the program
 paths.dofile('globals.lua')
 
+--note: using require won't emit parsing errors while paths.dofile will.
+
 local opts = require('opts.lua')
 local util = require('util.lua')
 local models = require('models.lua')
 local imageLoader = require('imageLoader.lua')
-local train = require('train.lua')
+local train = paths.dofile('train.lua')
 
 
 torch.setdefaulttensortype('torch.FloatTensor')

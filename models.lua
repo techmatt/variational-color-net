@@ -110,8 +110,8 @@ local function createModelGraph(opt)
     
     r.classificationNet:add(nn.SpatialConvolution(128, 1, 3, 3, 2, 2, 1, 1))
     r.classificationNet:add(nn.ReLU(true))
-    r.classificationNet:add(nn.Reshape(opt.batchSize, 1024, false))
-    r.classificationNet:add(nn.Linear(1024, 512))
+    r.classificationNet:add(nn.Reshape(opt.batchSize, 784, false))
+    r.classificationNet:add(nn.Linear(784, 512))
     r.classificationNet:add(nn.ReLU(true))
     r.classificationNet:add(nn.Linear(512, 256))
     r.classificationNet:add(nn.ReLU(true))
@@ -119,9 +119,10 @@ local function createModelGraph(opt)
     
     print('adding class loss')
     r.encoderOutput = r.encoder(r.grayscaleImage):annotate{name = 'encoderOutput'}
-    r.classProbabilities = r.classificationNet(r.encoderOutput):annotate{name = 'classProbabilities'}
-    r.classLoss = nn.CrossEntropyCriterion()({r.classProbabilities, r.targetCategories}):annotate{name = 'classLoss'}
-    --r.classLoss = nn.MSECriterion()({r.classProbabilities, r.targetCategories}):annotate{name = 'classLoss'}
+    r.classProbabilitiesPreLog = r.classificationNet(r.encoderOutput):annotate{name = 'classProbabilitiesPreLog'}
+    r.classProbabilities = cudnn.LogSoftMax()(r.classProbabilitiesPreLog):annotate{name = 'classProbabilities'}
+    --r.classLoss = cudnn.ClassNLLCriterion()({r.classProbabilities, r.targetCategories}):annotate{name = 'classLoss'}
+    r.classLoss = nn.CrossEntropyCriterion()({r.classProbabilitiesPreLog, r.targetCategories}):annotate{name = 'classLoss'}
     
     r.decoderOutput = r.decoder(r.encoderOutput):annotate{name = 'decoderOutput'}
 
@@ -148,7 +149,7 @@ local function createModelGraph(opt)
     r.classLosMul = nn.MulConstant(opt.classWeight, true)(r.classLoss)
     r.pixelLossMul = nn.MulConstant(opt.pixelWeight, true)(r.pixelLoss)
     r.contentLossMul = nn.MulConstant(opt.contentWeight, true)(r.contentLoss)
-    r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent, r.targetCategories}, {r.classLosMul, r.pixelLossMul, r.contentLossMul})
+    r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent, r.targetCategories}, {r.classLosMul, r.pixelLossMul, r.contentLossMul, r.classProbabilities})
     --r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent}, {r.pixelLossMul, r.contentLossMul})
     
     cudnn.convert(r.graph, cudnn)
