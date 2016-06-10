@@ -55,8 +55,8 @@ local timer = torch.Timer()
 local dataTimer = torch.Timer()
 
 -- 4. trainBatch - Used by train() to train a single batch after the data is loaded.
-local function trainBatchGraph(model, grayscaleInputsCPU, colorTargetsCPU, classLabelsCPU, opt, epoch)
-    local parametersGraph, gradParametersGraph = model.graph:getParameters()
+local function trainBatch(model, grayscaleInputsCPU, colorTargetsCPU, classLabelsCPU, opt, epoch)
+    local parameters, gradParameters = model.graph:getParameters()
     
     cutorch.synchronize()
     collectgarbage()
@@ -107,9 +107,9 @@ local function trainBatchGraph(model, grayscaleInputsCPU, colorTargetsCPU, class
         
         model.vggNet:zeroGradParameters()
         
-        return totalLoss, gradParametersGraph
+        return totalLoss, gradParameters
     end
-    optim.adam(feval, parametersGraph, optimState)
+    optim.adam(feval, parameters, optimState)
 
     cutorch.synchronize()
     batchNumber = batchNumber + 1
@@ -167,7 +167,7 @@ local function train(model, imgLoader, opt, epoch)
     
     for i = 1, opt.epochSize do
         local batch = imageLoader.sampleBatch(imgLoader)
-        trainBatchGraph(model, batch.grayscaleInputs, batch.colorTargets, batch.classLabels, opt, epoch)
+        trainBatch(model, batch.grayscaleInputs, batch.colorTargets, batch.classLabels, opt, epoch)
     end
     
     cutorch.synchronize()

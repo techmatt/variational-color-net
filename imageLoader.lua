@@ -23,15 +23,20 @@ function M.makeImageLoader(opt)
 end
 
 local function loadAndResizeImage(path, opt)
-   local loadSize = {3, opt.imageSize, opt.imageSize}
-   local input = image.load(path, 3, 'float')
+    local loadSize = {3, opt.imageSize, opt.imageSize}
+    local input = image.load(path, 3, 'float')
+
+    if input:size(2) == loadSize[2] and input:size(3) == loadSize[3] then
+        return input
+    end
+   
    -- find the smaller dimension, and resize it to loadSize (while keeping aspect ratio)
-   if input:size(3) < input:size(2) then
-      input = image.scale(input, loadSize[2], loadSize[3] * input:size(2) / input:size(3))
-   else
-      input = image.scale(input, loadSize[2] * input:size(3) / input:size(2), loadSize[3])
-   end
-   return input
+    if input:size(3) < input:size(2) then
+       input = image.scale(input, loadSize[2], loadSize[3] * input:size(2) / input:size(3))
+    else
+       input = image.scale(input, loadSize[2] * input:size(3) / input:size(2), loadSize[3])
+    end
+    return input
 end
 
 -- function to load the image, jitter it appropriately (random crops etc.)
