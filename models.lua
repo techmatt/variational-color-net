@@ -76,70 +76,6 @@ local function createModelGraph(opt)
     r.grayscaleImage = nn.Identity()():annotate{name = 'grayscaleImage'}
     r.colorImage = nn.Identity()():annotate{name = 'colorImage'}
     r.targetContent = nn.Identity()():annotate{name = 'targetContent'}
-    --r.targetCategories = nn.Identity()():annotate{name = 'targetCategories'}
-    
-    r.transformNet = nn.Sequential()
-    
-    addConvElement(r.transformNet, 1, 32, 9, 1, 4)
-    addConvElement(r.transformNet, 32, 64, 3, 2, 1)
-    addConvElement(r.transformNet, 64, 128, 3, 2, 1)
-
-    addResidualBlock(r.transformNet, 128, 128, 3, 1, 1)
-    addResidualBlock(r.transformNet, 128, 128, 3, 1, 1)
-    addResidualBlock(r.transformNet, 128, 128, 3, 1, 1)
-    addResidualBlock(r.transformNet, 128, 128, 3, 1, 1)
-    addResidualBlock(r.transformNet, 128, 128, 3, 1, 1)
-    addResidualBlock(r.transformNet, 128, 128, 3, 1, 1)
-    addResidualBlock(r.transformNet, 128, 128, 3, 1, 1)
-    addResidualBlock(r.transformNet, 128, 128, 3, 1, 1)
-    addResidualBlock(r.transformNet, 128, 128, 3, 1, 1)
-
-    addUpConvElement(r.transformNet, 128, 64, 3, 2, 1, 1)
-    addUpConvElement(r.transformNet, 64, 32, 3, 2, 1, 1)
-
-    r.transformNet:add(nn.SpatialConvolution(32, 3, 3, 3, 1, 1, 1, 1))
-
-    if opt.TVWeight > 0 then
-        print('adding TV loss')
-        local tvModule = nn.TVLoss(opt.TVWeight, opt.batchSize):float()
-        tvModule:cuda()
-        r.transformNet:add(tvModule)
-    end
-    
-    r.transformedImage = r.transformNet(r.grayscaleImage):annotate{name = 'transformedImage'}
-
-    print('adding pixel loss')
-    r.pixelLoss = nn.MSECriterion()({r.transformedImage, r.colorImage}):annotate{name = 'pixelLoss'}
-
-    r.vggNet = createVGGGraph(opt)
-    
-    r.transformedContent = r.vggNet(r.transformedImage):annotate{name = 'transformedContent'}
-    
-    print('adding content loss')
-    r.contentLoss = nn.MSECriterion()({r.transformedContent, r.targetContent}):annotate{name = 'contentLoss'}
-
-    r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent}, {r.pixelLoss, r.contentLoss})
-    
-    cudnn.convert(r.graph, cudnn)
-    cudnn.convert(r.transformNet, cudnn)
-    cudnn.convert(r.vggNet, cudnn)
-    
-    r.graph = r.graph:cuda()
-    r.transformNet = r.transformNet:cuda()
-    r.vggNet = r.vggNet:cuda()
-
-    --graph.dot(r.graph.fg, 'graph', 'graph')
-    
-    return r
-end
-
-local function createModelGraph2(opt)
-    print('Creating model')
-   
-    local r = {}
-    r.grayscaleImage = nn.Identity()():annotate{name = 'grayscaleImage'}
-    r.colorImage = nn.Identity()():annotate{name = 'colorImage'}
-    r.targetContent = nn.Identity()():annotate{name = 'targetContent'}
     r.targetCategories = nn.Identity()():annotate{name = 'targetCategories'}
     
     r.downConvNet = nn.Sequential()
@@ -150,7 +86,6 @@ local function createModelGraph2(opt)
     addConvElement(r.downConvNet, 32, 64, 3, 2, 1)
     addConvElement(r.downConvNet, 64, 128, 3, 2, 1)
 
-    addResidualBlock(r.downConvNet, 128, 128, 3, 1, 1)
     addResidualBlock(r.downConvNet, 128, 128, 3, 1, 1)
     addResidualBlock(r.downConvNet, 128, 128, 3, 1, 1)
     addResidualBlock(r.downConvNet, 128, 128, 3, 1, 1)
@@ -175,6 +110,7 @@ local function createModelGraph2(opt)
     
     r.classificationNet:add(nn.SpatialConvolution(128, 1, 3, 3, 2, 2, 1, 1))
     r.classificationNet:add(nn.ReLU(true))
+    r.classificationNet:add(nn.Reshape(opt.batchSize, 1024, false))
     r.classificationNet:add(nn.Linear(1024, 512))
     r.classificationNet:add(nn.ReLU(true))
     r.classificationNet:add(nn.Linear(512, 256))
@@ -185,6 +121,7 @@ local function createModelGraph2(opt)
     r.classificationJunction = r.downConvNet(r.grayscaleImage):annotate{name = 'classificationJunction'}
     r.classProbabilities = r.classificationNet(r.classificationJunction):annotate{name = 'classProbabilities'}
     r.classLoss = nn.CrossEntropyCriterion()({r.classProbabilities, r.targetCategories}):annotate{name = 'classLoss'}
+    --r.classLoss = nn.MSECriterion()({r.classProbabilities, r.targetCategories}):annotate{name = 'classLoss'}
     
     r.transformedImage = r.upConvNet(r.classificationJunction):annotate{name = 'transformedImage'}
 
@@ -198,14 +135,22 @@ local function createModelGraph2(opt)
     print('adding content loss')
     r.contentLoss = nn.MSECriterion()({r.transformedContent, r.targetContent}):annotate{name = 'contentLoss'}
 
-    r.jointLoss = nn.MultiCriterion()
+    --[[r.jointLoss = nn.ParallelCriterion()
     r.jointLoss:add(r.classLoss, 100.0)
     r.jointLoss:add(r.pixelLoss, 10.0)
     r.jointLoss:add(r.contentLoss, 1.0)
     r.jointLoss = nn.ModuleFromCriterion(r.jointLoss)()
+    r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent, r.targetCategories}, {r.jointLoss})
+    ]]
     
     --r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent, r.targetCategories}, {r.classLoss, r.pixelLoss, r.contentLoss})
-    r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent, r.targetCategories}, {r.jointLoss})
+    
+    r.classLosMul = nn.MulConstant(0.0001,true)(r.classLoss)
+    r.pixelLossMul = nn.MulConstant(10.0,true)(r.pixelLoss)
+    r.contentLossMul = nn.MulConstant(1.0,true)(r.contentLoss)
+    r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent, r.targetCategories}, {r.classLosMul, r.pixelLossMul, r.contentLossMul})
+    --r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent}, {r.pixelLossMul, r.contentLossMul})
+    
     
     cudnn.convert(r.graph, cudnn)
     --cudnn.convert(r.transformNet, cudnn)
@@ -215,13 +160,13 @@ local function createModelGraph2(opt)
     --r.transformNet = r.transformNet:cuda()
     --r.vggNet = r.vggNet:cuda()
 
-    graph.dot(r.graph.fg, 'graph', 'graph')
+    graph.dot(r.graph.fg, 'graphForward', 'graphForward')
+    graph.dot(r.graph.bg, 'graphBackward', 'graphBackward')
     
     return r
 end
 
 
 return {
-    createModelGraph = createModelGraph,
-    createModelGraph2 = createModelGraph2
+    createModelGraph = createModelGraph
 }

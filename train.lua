@@ -22,12 +22,13 @@ local optimState = {
 local function paramsForEpoch(epoch)
     local regimes = {
         -- start, end,    LR,   WD,
-        {  1,     3,   2e-4,   0 },
-        {  4,     20,   1e-4,   0 },
-        { 21,     29,   5e-5,   0 },
-        { 30,     43,   2e-5,   0 },
-        { 44,     52,   5e-6,   0 },
-        { 53,    1e8,   1e-6,   0 },
+        {  1,     1,   1e-3,   0 },
+        {  2,     3,   5e-4,   0 },
+        {  4,     10,   1e-4,   0 },
+        { 11,     20,   5e-5,   0 },
+        { 21,     30,   2e-5,   0 },
+        { 31,     40,   5e-6,   0 },
+        { 41,    1e8,   1e-6,   0 },
     }
 
     for _, row in ipairs(regimes) do
@@ -48,6 +49,7 @@ local lossEpoch
 -- GPU inputs (preallocate)
 local inputs = torch.CudaTensor()
 local labels = torch.CudaTensor()
+local classLabels = torch.CudaTensor()
 
 local timer = torch.Timer()
 local dataTimer = torch.Timer()
@@ -64,33 +66,44 @@ local function trainBatchGraph(model, inputsCPU, labelsCPU, opt, epoch)
     -- transfer over to GPU
     inputs:resize(inputsCPU:size()):copy(inputsCPU)
     labels:resize(labelsCPU:size()):copy(labelsCPU)
+    
+    local classLabelsCPU = torch.IntTensor(opt.batchSize, 1)
+    for i = 1, opt.batchSize do
+        classLabelsCPU[i][1] = 1
+    end
+    classLabels:resize(classLabelsCPU:size()):copy(classLabelsCPU)
 
-    local pixelLoss, contentLoss, totalLoss
+    if totalBatchCount % 100 == 0 then
+        local inClone = labels[1]:clone()
+        --inClone:add(0.5)
+        inClone = torchUtil.caffeDeprocess(inClone)
+        
+        local outClone = model.upConvNet:forward(model.downConvNet:forward(inputs))[1]:clone()
+        outClone = torchUtil.caffeDeprocess(outClone)
+        
+        image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_in.jpg', inClone)
+        image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_out.jpg', outClone)
+    end
+    
+    --local g = model.graph:listModules()
+    --print(g)
+    
+    local classLoss, pixelLoss, contentLoss, totalLoss
     local feval = function(x)
         local contentTargets = model.vggNet:forward(labels):clone()
         
-        if totalBatchCount % 100 == 0 then
-            local inClone = labels[1]:clone()
-            --inClone:add(0.5)
-            inClone = torchUtil.caffeDeprocess(inClone)
-            
-            local outClone = model.transformNet:forward(inputs)[1]:clone()
-            outClone = torchUtil.caffeDeprocess(outClone)
-            
-            image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_in.jpg', inClone)
-            image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_out.jpg', outClone)
-        end
-        
         model.graph:zeroGradParameters()
         
-        local outputLoss = model.graph:forward({inputs, labels, contentTargets})
+        --print(model.graph)
+        local outputLoss = model.graph:forward({inputs, labels, contentTargets, classLabels})
         
-        pixelLoss = outputLoss[1][1]
-        contentLoss = outputLoss[2][1]
+        classLoss = outputLoss[1][1]
+        pixelLoss = outputLoss[2][1]
+        contentLoss = outputLoss[3][1]
         
-        model.graph:backward({inputs, labels, contentTargets}, outputLoss)
+        model.graph:backward({inputs, labels, contentTargets, classLabels}, outputLoss)
         
-        totalLoss = pixelLoss + contentLoss
+        totalLoss = classLoss + pixelLoss + contentLoss
         
         model.vggNet:zeroGradParameters()
         
@@ -106,6 +119,7 @@ local function trainBatchGraph(model, inputsCPU, labelsCPU, opt, epoch)
         epoch, batchNumber, opt.epochSize, timer:time().real, totalLoss,
         optimState.learningRate, dataLoadingTime))
         
+    print(string.format('  Class loss: %f', classLoss))
     print(string.format('  Pixel loss: %f', pixelLoss))
     print(string.format('  Content loss: %f', contentLoss))
     
