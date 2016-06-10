@@ -56,7 +56,7 @@ local dataTimer = torch.Timer()
 
 -- 4. trainBatch - Used by train() to train a single batch after the data is loaded.
 local function trainBatch(model, grayscaleInputsCPU, colorTargetsCPU, classLabelsCPU, opt, epoch)
-    local parameters, gradParameters = model.graph:getParameters()
+    local parameters, gradParameters = model.trainingNet:getParameters()
     
     cutorch.synchronize()
     collectgarbage()
@@ -78,30 +78,30 @@ local function trainBatch(model, grayscaleInputsCPU, colorTargetsCPU, classLabel
         --inClone:add(0.5)
         inClone = torchUtil.caffeDeprocess(inClone)
         
-        local outClone = model.decoder:forward(model.encoder:forward(grayscaleInputs))[1]:clone()
+        local outClone = model.predictionNet:forward(grayscaleInputs)[1]:clone()
         outClone = torchUtil.caffeDeprocess(outClone)
         
         image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_in.jpg', inClone)
         image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_out.jpg', outClone)
     end
     
-    --local g = model.graph:listModules()
+    --local g = model.trainingNet:listModules()
     --print(g)
     
     local classLoss, pixelLoss, contentLoss, totalLoss
     local feval = function(x)
         local contentTargets = model.vggNet:forward(colorTargets):clone()
         
-        model.graph:zeroGradParameters()
+        model.trainingNet:zeroGradParameters()
         
-        --print(model.graph)
-        local outputLoss = model.graph:forward({grayscaleInputs, colorTargets, contentTargets, classLabels})
+        --print(model.trainingNet)
+        local outputLoss = model.trainingNet:forward({grayscaleInputs, colorTargets, contentTargets, classLabels})
         
         classLoss = outputLoss[1][1]
         pixelLoss = outputLoss[2][1]
         contentLoss = outputLoss[3][1]
         
-        model.graph:backward({grayscaleInputs, colorTargets, contentTargets, classLabels}, outputLoss)
+        model.trainingNet:backward({grayscaleInputs, colorTargets, contentTargets, classLabels}, outputLoss)
         
         totalLoss = classLoss + pixelLoss + contentLoss
         
@@ -156,7 +156,7 @@ local function train(model, imgLoader, opt, epoch)
     cutorch.synchronize()
 
     -- set the dropouts to training mode
-    model.graph:training()
+    model.trainingNet:training()
 
     local tm = torch.Timer()
     
@@ -195,13 +195,13 @@ local function train(model, imgLoader, opt, epoch)
 
     -- clear the intermediate states in the model before saving to disk
     -- this saves lots of disk space
-    --model.graph:clearState()
+    --model.trainingNet:clearState()
     model.downConvNet:clearState()
     model.upConvNet:clearState()
     model.classificationNet:clearState()
     model.vggNet:clearState()
     
-    torch.save(opt.outDir .. 'models/transform' .. epoch .. '.t7', model.graph)
+    torch.save(opt.outDir .. 'models/transform' .. epoch .. '.t7', model.trainingNet)
 end
 
 -------------------------------------------------------------------------------------------

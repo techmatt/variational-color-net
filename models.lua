@@ -73,8 +73,8 @@ local function createModelGraph(opt)
     print('Creating model')
 
     local r = {} 
-    r.encoder = nn.Sequential()
-    r.decoder = nn.Sequential()
+    local encoder = nn.Sequential()
+    local decoder = nn.Sequential()
    
     local grayscaleImage = nn.Identity()():annotate{name = 'grayscaleImage'}
     local colorImage = nn.Identity()():annotate{name = 'colorImage'}
@@ -83,30 +83,30 @@ local function createModelGraph(opt)
 
     local classificationNet = nn.Sequential()
     
-    addConvElement(r.encoder, 1, 32, 9, 1, 4)
-    addConvElement(r.encoder, 32, 64, 3, 2, 1)
-    addConvElement(r.encoder, 64, 128, 3, 2, 1)
+    addConvElement(encoder, 1, 32, 9, 1, 4)
+    addConvElement(encoder, 32, 64, 3, 2, 1)
+    addConvElement(encoder, 64, 128, 3, 2, 1)
 
-    addResidualBlock(r.encoder, 128, 128, 3, 1, 1)
-    addResidualBlock(r.encoder, 128, 128, 3, 1, 1)
-    addResidualBlock(r.encoder, 128, 128, 3, 1, 1)
-    addResidualBlock(r.encoder, 128, 128, 3, 1, 1)
-    addResidualBlock(r.encoder, 128, 128, 3, 1, 1)
+    addResidualBlock(encoder, 128, 128, 3, 1, 1)
+    addResidualBlock(encoder, 128, 128, 3, 1, 1)
+    addResidualBlock(encoder, 128, 128, 3, 1, 1)
+    addResidualBlock(encoder, 128, 128, 3, 1, 1)
+    addResidualBlock(encoder, 128, 128, 3, 1, 1)
     
-    addResidualBlock(r.decoder, 128, 128, 3, 1, 1)
-    addResidualBlock(r.decoder, 128, 128, 3, 1, 1)
-    addResidualBlock(r.decoder, 128, 128, 3, 1, 1)
+    addResidualBlock(decoder, 128, 128, 3, 1, 1)
+    addResidualBlock(decoder, 128, 128, 3, 1, 1)
+    addResidualBlock(decoder, 128, 128, 3, 1, 1)
 
-    addUpConvElement(r.decoder, 128, 64, 3, 2, 1, 1)
-    addUpConvElement(r.decoder, 64, 32, 3, 2, 1, 1)
+    addUpConvElement(decoder, 128, 64, 3, 2, 1, 1)
+    addUpConvElement(decoder, 64, 32, 3, 2, 1, 1)
 
-    r.decoder:add(nn.SpatialConvolution(32, 3, 3, 3, 1, 1, 1, 1))
+    decoder:add(nn.SpatialConvolution(32, 3, 3, 3, 1, 1, 1, 1))
 
     if opt.TVWeight > 0 then
         print('adding TV loss')
         local tvModule = nn.TVLoss(opt.TVWeight, opt.batchSize):float()
         tvModule:cuda()
-        r.decoder:add(tvModule)
+        decoder:add(tvModule)
     end
     
     classificationNet:add(nn.SpatialConvolution(128, 1, 3, 3, 2, 2, 1, 1))
@@ -119,12 +119,12 @@ local function createModelGraph(opt)
     classificationNet:add(nn.Linear(256, 205))
     
     print('adding class loss')
-    local encoderOutput = r.encoder(grayscaleImage):annotate{name = 'encoderOutput'}
+    local encoderOutput = encoder(grayscaleImage):annotate{name = 'encoderOutput'}
     local classProbabilities = classificationNet(encoderOutput):annotate{name = 'classProbabilities'}
     local classLoss = nn.CrossEntropyCriterion()({classProbabilities, targetCategories}):annotate{name = 'classLoss'}
     --local classLoss = nn.MSECriterion()({classProbabilities, targetCategories}):annotate{name = 'classLoss'}
     
-    local decoderOutput = r.decoder(encoderOutput):annotate{name = 'decoderOutput'}
+    local decoderOutput = decoder(encoderOutput):annotate{name = 'decoderOutput'}
 
     print('adding pixel loss')
     local pixelLoss = nn.MSECriterion()({decoderOutput, colorImage}):annotate{name = 'pixelLoss'}
@@ -141,23 +141,29 @@ local function createModelGraph(opt)
     jointLoss:add(pixelLoss, 10.0)
     jointLoss:add(contentLoss, 1.0)
     jointLoss = nn.ModuleFromCriterion(jointLoss)()
-    r.graph = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {jointLoss})
+    r.trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {jointLoss})
     ]]
-    
-    --r.graph = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {classLoss, pixelLoss, contentLoss})
+
+    --r.trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {classLoss, pixelLoss, contentLoss})
     
     local classLosMul = nn.MulConstant(opt.classWeight, true)(classLoss)
     local pixelLossMul = nn.MulConstant(opt.pixelWeight, true)(pixelLoss)
     local contentLossMul = nn.MulConstant(opt.contentWeight, true)(contentLoss)
-    r.graph = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {classLosMul, pixelLossMul, contentLossMul})
-    --r.graph = nn.gModule({grayscaleImage, colorImage, targetContent}, {pixelLossMul, contentLossMul})
 
-    cudnn.convert(r.graph, cudnn)
-    
-    r.graph = r.graph:cuda()
+    -- Full training network including all loss functions
+    r.trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {classLosMul, pixelLossMul, contentLossMul})
+    --r.trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent}, {pixelLossMul, contentLossMul})
+    cudnn.convert(r.trainingNet, cudnn)
+    r.trainingNet = r.trainingNet:cuda()
+    graph.dot(r.trainingNet.fg, 'graphForward', 'graphForward')
+    graph.dot(r.trainingNet.bg, 'graphBackward', 'graphBackward')
 
-    graph.dot(r.graph.fg, 'graphForward', 'graphForward')
-    graph.dot(r.graph.bg, 'graphBackward', 'graphBackward')
+    -- Network that just predicts grayscale -> color images
+    r.predictionNet = nn.Sequential()
+    r.predictionNet:add(encoder)
+    r.predictionNet:add(decoder)
+    cudnn.convert(r.predictionNet, cudnn)
+    r.predictionNet = r.predictionNet:cuda()
     
     return r
 end
