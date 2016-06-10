@@ -54,10 +54,11 @@ local dataTimer = torch.Timer()
 
 -- 4. trainBatch - Used by train() to train a single batch after the data is loaded.
 local function trainBatch(model, grayscaleInputsCPU, colorTargetsCPU, classLabelsCPU, opt, epoch)
+    
     local parameters, gradParameters = model.trainingNet:getParameters()
     
     cutorch.synchronize()
-    collectgarbage()
+    
     local dataLoadingTime = dataTimer:time().real
     timer:reset()
 
