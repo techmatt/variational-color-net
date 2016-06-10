@@ -88,26 +88,33 @@ local function createEncoder(opt)
     return encoder
 end
 
-local function createSampler(opt)
-    -- First input is encoder output
-    -- Second input is randomness
+local function createParamPredictor(opt)
+    -- Input is encoder output
     local encoderOutput = nn.Identity()()
-    local randomness = nn.Identity()()
 
     -- Turn encoder output into two equal sized blocks
-    -- First is mean, second is stddev
+    -- First is mean, second is log(stddev^2)
     -- TODO: Slap some more residual blocks on each of these, to make them
     --    less correlated?
-    local mean = nn.SpatialConvolution(128, 128, 3, 3, 1, 1, 1, 1)(encoderOutput)
-    local stddev = nn.SpatialConvolution(128, 128, 3, 3, 1, 1, 1, 1)(encoderOutput)
+    local mu = nn.SpatialConvolution(128, 128, 3, 3, 1, 1, 1, 1)(encoderOutput)
+    local logSigmaSq = nn.SpatialConvolution(128, 128, 3, 3, 1, 1, 1, 1)(encoderOutput)
 
-    -- Exp the stddev to ensure positivity
-    stddev = nn.Exp()(stddev)
+    return nn.gModule({encoderOutput}, {mu, logSigmaSq})
+end
+
+local function createReparameterizer(opt)
+    -- Input is {mu, logSigmaSq, randomness}
+    local mu = nn.Identity()()
+    local logSigmaSq = nn.Identity()()
+    local randomness = nn.Identity()()
+
+    -- Compute sigma (log(sigma^2) = 2log(sigma))
+    local sigma = nn.Exp()(nn.MulConstant(0.5)(logSigmaSq))
 
     -- Shift and scale the randomness
-    local output = nn.CAddTable()({mean, nn.CMulTable()({stddev, randomness})})
+    local output = nn.CAddTable()({mu, nn.CMulTable()({sigma, randomness})})
 
-    return nn.gModule({encoderOutput, randomness}, {output})
+    return nn.gModule({mu, logSigmaSq, randomness}, {output})
 end
 
 local function createDecoder(opt)
