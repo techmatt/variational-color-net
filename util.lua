@@ -73,11 +73,14 @@ function M.listFilesByDir(dir, outFileBase)
     for i, file in ipairs(files) do
         local parts = M.split(file, '/')
         local filename = parts[#parts]
-        local folder = parts[#parts - 1]
-        if folder == 'outdoor' then folder = parts[#parts - 2] end
-        --print('entry: ' .. folder .. ' | ' .. filename)
-        if L[folder] == nil then L[folder] = {} end
-        table.insert(L[folder], file)
+        -- Only consider JPEGs
+        if paths.extname(filename) == 'jpg' then
+            local folder = parts[#parts - 1]
+            if folder == 'outdoor' then folder = parts[#parts - 2] end
+            --print('entry: ' .. folder .. ' | ' .. filename)
+            if L[folder] == nil then L[folder] = {} end
+            table.insert(L[folder], file)
+        end
     end
     
     local folderList = {}

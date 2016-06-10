@@ -71,93 +71,100 @@ end
 
 local function createModelGraph(opt)
     print('Creating model')
+
+    local r = {} 
+    local encoder = nn.Sequential()
+    local decoder = nn.Sequential()
    
-    local r = {}
-    r.grayscaleImage = nn.Identity()():annotate{name = 'grayscaleImage'}
-    r.colorImage = nn.Identity()():annotate{name = 'colorImage'}
-    r.targetContent = nn.Identity()():annotate{name = 'targetContent'}
-    r.targetCategories = nn.Identity()():annotate{name = 'targetCategories'}
-    
-    r.encoder = nn.Sequential()
-    r.decoder = nn.Sequential()
-    r.classificationNet = nn.Sequential()
-    
-    addConvElement(r.encoder, 1, 32, 9, 1, 4)
-    addConvElement(r.encoder, 32, 64, 3, 2, 1)
-    addConvElement(r.encoder, 64, 128, 3, 2, 1)
+    local grayscaleImage = nn.Identity()():annotate{name = 'grayscaleImage'}
+    local colorImage = nn.Identity()():annotate{name = 'colorImage'}
+    local targetContent = nn.Identity()():annotate{name = 'targetContent'}
+    local targetCategories = nn.Identity()():annotate{name = 'targetCategories'}
 
-    addResidualBlock(r.encoder, 128, 128, 3, 1, 1)
-    addResidualBlock(r.encoder, 128, 128, 3, 1, 1)
-    addResidualBlock(r.encoder, 128, 128, 3, 1, 1)
-    addResidualBlock(r.encoder, 128, 128, 3, 1, 1)
-    addResidualBlock(r.encoder, 128, 128, 3, 1, 1)
+    local classificationNet = nn.Sequential()
     
-    addResidualBlock(r.decoder, 128, 128, 3, 1, 1)
-    addResidualBlock(r.decoder, 128, 128, 3, 1, 1)
-    addResidualBlock(r.decoder, 128, 128, 3, 1, 1)
+    addConvElement(encoder, 1, 32, 9, 1, 4)
+    addConvElement(encoder, 32, 64, 3, 2, 1)
+    addConvElement(encoder, 64, 128, 3, 2, 1)
 
-    addUpConvElement(r.decoder, 128, 64, 3, 2, 1, 1)
-    addUpConvElement(r.decoder, 64, 32, 3, 2, 1, 1)
+    addResidualBlock(encoder, 128, 128, 3, 1, 1)
+    addResidualBlock(encoder, 128, 128, 3, 1, 1)
+    addResidualBlock(encoder, 128, 128, 3, 1, 1)
+    addResidualBlock(encoder, 128, 128, 3, 1, 1)
+    addResidualBlock(encoder, 128, 128, 3, 1, 1)
+    
+    addResidualBlock(decoder, 128, 128, 3, 1, 1)
+    addResidualBlock(decoder, 128, 128, 3, 1, 1)
+    addResidualBlock(decoder, 128, 128, 3, 1, 1)
 
-    r.decoder:add(nn.SpatialConvolution(32, 3, 3, 3, 1, 1, 1, 1))
+    addUpConvElement(decoder, 128, 64, 3, 2, 1, 1)
+    addUpConvElement(decoder, 64, 32, 3, 2, 1, 1)
+
+    decoder:add(nn.SpatialConvolution(32, 3, 3, 3, 1, 1, 1, 1))
 
     if opt.TVWeight > 0 then
         print('adding TV loss')
         local tvModule = nn.TVLoss(opt.TVWeight, opt.batchSize):float()
         tvModule:cuda()
-        r.decoder:add(tvModule)
+        decoder:add(tvModule)
     end
     
-    r.classificationNet:add(nn.SpatialConvolution(128, 1, 3, 3, 2, 2, 1, 1))
-    r.classificationNet:add(nn.ReLU(true))
-    r.classificationNet:add(nn.Reshape(opt.batchSize, 784, false))
-    r.classificationNet:add(nn.Linear(784, 512))
-    r.classificationNet:add(nn.ReLU(true))
-    r.classificationNet:add(nn.Linear(512, 256))
-    r.classificationNet:add(nn.ReLU(true))
-    r.classificationNet:add(nn.Linear(256, 205))
+    classificationNet:add(nn.SpatialConvolution(128, 1, 3, 3, 2, 2, 1, 1))
+    classificationNet:add(nn.ReLU(true))
+    classificationNet:add(nn.Reshape(opt.batchSize, 784, false))
+    classificationNet:add(nn.Linear(784, 512))
+    classificationNet:add(nn.ReLU(true))
+    classificationNet:add(nn.Linear(512, 256))
+    classificationNet:add(nn.ReLU(true))
+    classificationNet:add(nn.Linear(256, 205))
     
     print('adding class loss')
-    r.encoderOutput = r.encoder(r.grayscaleImage):annotate{name = 'encoderOutput'}
-    r.classProbabilitiesPreLog = r.classificationNet(r.encoderOutput):annotate{name = 'classProbabilitiesPreLog'}
-    r.classProbabilities = cudnn.LogSoftMax()(r.classProbabilitiesPreLog):annotate{name = 'classProbabilities'}
-    --r.classLoss = cudnn.ClassNLLCriterion()({r.classProbabilities, r.targetCategories}):annotate{name = 'classLoss'}
-    r.classLoss = nn.CrossEntropyCriterion()({r.classProbabilitiesPreLog, r.targetCategories}):annotate{name = 'classLoss'}
+    local encoderOutput = encoder(grayscaleImage):annotate{name = 'encoderOutput'}
+    local classProbabilitiesPreLog = classificationNet(encoderOutput):annotate{name = 'classProbabilitiesPreLog'}
+    local classProbabilities = cudnn.LogSoftMax()(classProbabilitiesPreLog):annotate{name = 'classProbabilities'}
+    --local classLoss = cudnn.ClassNLLCriterion()({r.classProbabilities, targetCategories}):annotate{name = 'classLoss'}
+    local classLoss = nn.CrossEntropyCriterion()({classProbabilitiesPreLog, targetCategories}):annotate{name = 'classLoss'}
     
-    r.decoderOutput = r.decoder(r.encoderOutput):annotate{name = 'decoderOutput'}
+    local decoderOutput = decoder(encoderOutput):annotate{name = 'decoderOutput'}
 
     print('adding pixel loss')
-    r.pixelLoss = nn.MSECriterion()({r.decoderOutput, r.colorImage}):annotate{name = 'pixelLoss'}
+    local pixelLoss = nn.MSECriterion()({decoderOutput, colorImage}):annotate{name = 'pixelLoss'}
 
     r.vggNet = createVGGGraph(opt)
     
-    r.perceptualContent = r.vggNet(r.decoderOutput):annotate{name = 'perceptualContent'}
+    local perceptualContent = r.vggNet(decoderOutput):annotate{name = 'perceptualContent'}
     
     print('adding content loss')
-    r.contentLoss = nn.MSECriterion()({r.perceptualContent, r.targetContent}):annotate{name = 'contentLoss'}
+    local contentLoss = nn.MSECriterion()({perceptualContent, targetContent}):annotate{name = 'contentLoss'}
 
-    --[[r.jointLoss = nn.ParallelCriterion()
-    r.jointLoss:add(r.classLoss, 100.0)
-    r.jointLoss:add(r.pixelLoss, 10.0)
-    r.jointLoss:add(r.contentLoss, 1.0)
-    r.jointLoss = nn.ModuleFromCriterion(r.jointLoss)()
-    r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent, r.targetCategories}, {r.jointLoss})
+    --[[local jointLoss = nn.ParallelCriterion()
+    jointLoss:add(classLoss, 100.0)
+    jointLoss:add(pixelLoss, 10.0)
+    jointLoss:add(contentLoss, 1.0)
+    jointLoss = nn.ModuleFromCriterion(jointLoss)()
+    r.trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {jointLoss})
     ]]
-    
-    --r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent, r.targetCategories}, {r.classLoss, r.pixelLoss, r.contentLoss})
-    
-    r.classLosMul = nn.MulConstant(opt.classWeight, true)(r.classLoss)
-    r.pixelLossMul = nn.MulConstant(opt.pixelWeight, true)(r.pixelLoss)
-    r.contentLossMul = nn.MulConstant(opt.contentWeight, true)(r.contentLoss)
-    r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent, r.targetCategories}, {r.classLosMul, r.pixelLossMul, r.contentLossMul, r.classProbabilities})
-    --r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent}, {r.pixelLossMul, r.contentLossMul})
-    
-    cudnn.convert(r.graph, cudnn)
-    
-    r.graph = r.graph:cuda()
 
-    graph.dot(r.graph.fg, 'graphForward', 'graphForward')
-    graph.dot(r.graph.bg, 'graphBackward', 'graphBackward')
+    --r.trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {classLoss, pixelLoss, contentLoss})
+    
+    local classLosMul = nn.MulConstant(opt.classWeight, true)(classLoss)
+    local pixelLossMul = nn.MulConstant(opt.pixelWeight, true)(pixelLoss)
+    local contentLossMul = nn.MulConstant(opt.contentWeight, true)(contentLoss)
+
+    -- Full training network including all loss functions
+    r.trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {classLosMul, pixelLossMul, contentLossMul, classProbabilities})
+    --r.trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent}, {pixelLossMul, contentLossMul})
+    cudnn.convert(r.trainingNet, cudnn)
+    r.trainingNet = r.trainingNet:cuda()
+    graph.dot(r.trainingNet.fg, 'graphForward', 'graphForward')
+    graph.dot(r.trainingNet.bg, 'graphBackward', 'graphBackward')
+
+    -- Network that just predicts grayscale -> color images
+    r.predictionNet = nn.Sequential()
+    r.predictionNet:add(encoder)
+    r.predictionNet:add(decoder)
+    cudnn.convert(r.predictionNet, cudnn)
+    r.predictionNet = r.predictionNet:cuda()
     
     return r
 end
