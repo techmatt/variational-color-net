@@ -1,13 +1,7 @@
+local imageLoader = require('imageLoader')
+local torchUtil = require('torchUtil')
 
-require 'optim'
-
---[[
-   1. Setup SGD optimization state and learning rate schedule
-   2. Create loggers.
-   3. train - this function handles the high-level training loop,
-              i.e. load data, train model, save model and state to disk
-   4. trainBatch - Used by train() to train a single batch after the data is loaded.
-]]--
+local describeNets = true
 
 -- Setup a reused optimization state (for adam/sgd).
 local optimState = {
@@ -43,62 +37,14 @@ local function paramsForEpoch(epoch)
     end
 end
 
--- 2. Create loggers.
-trainLogger = optim.Logger(paths.concat(opt.outDir, 'train.log'))
-local batchNumber
-local totalBatchCount = 0
 
--- 3. train - this function handles the high-level training loop,
---            i.e. load data, train model, save model and state to disk
-function train(imageLoader)
-    print('==> doing epoch on training data:')
-    print("==> online epoch # " .. epoch)
+-- Stuff for logging
+local trainLogger = nil
+local batchNumber               -- Current batch in current epoch
+local totalBatchCount = 0       -- Total # of batches across all epochs
+local lossEpoch
 
-    local params, newRegime = paramsForEpoch(epoch)
-    if newRegime then
-        optimState = {
-        learningRate = params.learningRate,
-        weightDecay = params.weightDecay
-        }
-    end
-    batchNumber = 0
-    cutorch.synchronize()
 
-    -- set the dropouts to training mode
-    fullNetwork:training()
-
-    local tm = torch.Timer()
-    lossEpoch = 0
-    for i = 1, opt.epochSize do
-        local batch = sampleBatch(imageLoader)
-        --trainBatch(batch.inputs, batch.labels)
-        trainBatchGraph(batch.inputs, batch.labels)
-    end
-    
-    cutorch.synchronize()
-
-    lossEpoch = lossEpoch / (opt.batchSize * opt.epochSize)
-
-    trainLogger:add{
-    ['avg loss (train set)'] = lossEpoch
-    }
-    print(string.format('Epoch: [%d][TRAINING SUMMARY] Total Time(s): %.2f\t'
-        .. 'average loss (per batch): %.2f \t '
-        .. 'accuracy(%%):\t top-1 %.2f\t',
-        epoch, tm:time().real, lossEpoch, lossEpoch))
-    print('\n')
-
-    -- save model
-    collectgarbage()
-
-    -- clear the intermediate states in the model before saving to disk
-    -- this saves lots of disk space
-    transformNetwork:clearState()
-    
-    torch.save(opt.outDir .. 'models/transform' .. epoch .. '.t7', transformNetwork)
-end
-
--------------------------------------------------------------------------------------------
 -- GPU inputs (preallocate)
 local inputs = torch.CudaTensor()
 local labels = torch.CudaTensor()
@@ -106,83 +52,10 @@ local labels = torch.CudaTensor()
 local timer = torch.Timer()
 local dataTimer = torch.Timer()
 
-local parameters, gradParameters = fullNetwork:getParameters()
-
--- Run it through the network once to get the proper size for the gradient
--- All the gradients will come from the extra loss modules, so we just pass
--- zeros into the top of the net on the backward pass.
-local zeroGradOutputs = nil
-
 -- 4. trainBatch - Used by train() to train a single batch after the data is loaded.
-function trainBatch(inputsCPU, labelsCPU)
-    cutorch.synchronize()
-    collectgarbage()
-    local dataLoadingTime = dataTimer:time().real
-    timer:reset()
-
-    -- transfer over to GPU
-    inputs:resize(inputsCPU:size()):copy(inputsCPU)
-    labels:resize(labelsCPU:size()):copy(labelsCPU)
-
-    if describeNets and totalBatchCount == 0 then
-        describeNet(fullNetwork, inputs, opt.outDir .. 'full/')
-        describeNet(vggContentNetwork, labels, opt.outDir .. 'content/')
-    end
+local function trainBatchGraph(model, inputsCPU, labelsCPU, opt, epoch)
+    local parametersGraph, gradParametersGraph = model.graph:getParameters()
     
-    if not zeroGradOutputs then
-        local output = fullNetwork:forward(inputs)
-        zeroGradOutputs = inputs.new(#output):zero()
-    end
-
-    local loss, contentTargets
-    feval = function(x)
-        contentTargets = vggContentNetwork:forward(labels):clone()
-        pixelLossModule.target = labels
-        contentLossModule.target = contentTargets
-        
-        if totalBatchCount % 100 == 0 then
-            local inClone = labels[1]:clone()
-            --inClone:add(0.5)
-            inClone = caffeDeprocess(inClone)
-            
-            local outClone = transformNetwork:forward(inputs)[1]:clone()
-            outClone = caffeDeprocess(outClone)
-            
-            image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_in.jpg', inClone)
-            image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_out.jpg', outClone)
-        end
-        
-        fullNetwork:zeroGradParameters()
-        fullNetwork:forward(inputs)
-        fullNetwork:backward(inputs, zeroGradOutputs)
-        
-        loss = contentLossModule.loss + pixelLossModule.loss
-        
-        vggContentNetwork:zeroGradParameters()
-        
-        return loss, gradParameters
-    end
-    optim.adam(feval, parameters, optimState)
-
-    cutorch.synchronize()
-    batchNumber = batchNumber + 1
-    lossEpoch = lossEpoch + loss
-
-    print(('Epoch: [%d][%d/%d]\tTime %.3f Err %.4f LR %.0e DataLoadingTime %.3f'):format(
-        epoch, batchNumber, opt.epochSize, timer:time().real, loss,
-        optimState.learningRate, dataLoadingTime))
-        
-    print(string.format('  Pixel loss: %f', pixelLossModule.loss))
-    print(string.format('  Content loss: %f', contentLossModule.loss))
-    
-    dataTimer:reset()
-    totalBatchCount = totalBatchCount + 1
-end
-
-local parametersGraph, gradParametersGraph = model.graph:getParameters()
-
--- 4. trainBatch - Used by train() to train a single batch after the data is loaded.
-function trainBatchGraph(inputsCPU, labelsCPU)
     cutorch.synchronize()
     collectgarbage()
     local dataLoadingTime = dataTimer:time().real
@@ -193,16 +66,16 @@ function trainBatchGraph(inputsCPU, labelsCPU)
     labels:resize(labelsCPU:size()):copy(labelsCPU)
 
     local pixelLoss, contentLoss, totalLoss
-    feval = function(x)
+    local feval = function(x)
         local contentTargets = model.vggNet:forward(labels):clone()
         
         if totalBatchCount % 100 == 0 then
             local inClone = labels[1]:clone()
             --inClone:add(0.5)
-            inClone = caffeDeprocess(inClone)
+            inClone = torchUtil.caffeDeprocess(inClone)
             
             local outClone = model.transformNet:forward(inputs)[1]:clone()
-            outClone = caffeDeprocess(outClone)
+            outClone = torchUtil.caffeDeprocess(outClone)
             
             image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_in.jpg', inClone)
             image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_out.jpg', outClone)
@@ -239,3 +112,65 @@ function trainBatchGraph(inputsCPU, labelsCPU)
     dataTimer:reset()
     totalBatchCount = totalBatchCount + 1
 end
+
+-------------------------------------------------------------------------------------------
+
+
+-- train - this function handles the high-level training loop,
+--            i.e. load data, train model, save model and state to disk
+local function train(model, imgLoader, opt, epoch)
+    -- Initialize logging stuff
+    if trainLogger == nil then
+        trainLogger = optim.Logger(paths.concat(opt.outDir, 'train.log'))
+    end
+    batchNumber = 0
+
+    print('==> doing epoch on training data:')
+    print("==> online epoch # " .. epoch)
+
+    local params, newRegime = paramsForEpoch(epoch)
+    if newRegime then
+        optimState = {
+        learningRate = params.learningRate,
+        weightDecay = params.weightDecay
+        }
+    end
+    cutorch.synchronize()
+
+    -- set the dropouts to training mode
+    model.graph:training()
+
+    local tm = torch.Timer()
+    lossEpoch = 0
+    for i = 1, opt.epochSize do
+        local batch = imageLoader.sampleBatch(imgLoader)
+        trainBatchGraph(model, batch.inputs, batch.labels, opt, epoch)
+    end
+    
+    cutorch.synchronize()
+
+    lossEpoch = lossEpoch / (opt.batchSize * opt.epochSize)
+
+    trainLogger:add{
+    ['avg loss (train set)'] = lossEpoch
+    }
+    print(string.format('Epoch: [%d][TRAINING SUMMARY] Total Time(s): %.2f\t'
+        .. 'average loss (per batch): %.2f \t '
+        .. 'accuracy(%%):\t top-1 %.2f\t',
+        epoch, tm:time().real, lossEpoch, lossEpoch))
+    print('\n')
+
+    -- save model
+    collectgarbage()
+
+    -- clear the intermediate states in the model before saving to disk
+    -- this saves lots of disk space
+    transformNetwork:clearState()
+    
+    torch.save(opt.outDir .. 'models/transform' .. epoch .. '.t7', transformNetwork)
+end
+
+-------------------------------------------------------------------------------------------
+
+
+return train

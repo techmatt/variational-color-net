@@ -1,7 +1,7 @@
 
-require 'lfs'
+local M = {}
 
-function getFileListRecursive(dir)
+function M.getFileListRecursive(dir)
     print('Reading files in ' .. dir)
     local result = {}
     for file in lfs.dir(dir) do
@@ -10,7 +10,7 @@ function getFileListRecursive(dir)
             result[#result + 1] = path
         elseif lfs.attributes(path,"mode") == "directory" and file:sub(1, 1) ~= '.' then
             print('directory: ' .. file)
-            for k, v in ipairs(getFileListRecursive(path)) do
+            for k, v in ipairs(M.getFileListRecursive(path)) do
                 result[#result + 1] = v
             end
         end
@@ -18,18 +18,14 @@ function getFileListRecursive(dir)
     return result
 end
 
-function getDirList(dir)
-
-end
-
-function fileExists(file)
+function M.fileExists(file)
     local f = io.open(file, "rb")
     if f then f:close() end
     return f ~= nil
 end
 
-function readAllLines(file)
-    if not fileExists(file) then 
+function M.readAllLines(file)
+    if not M.fileExists(file) then 
         print('file not found: ', file)
         return {}
     end
@@ -40,9 +36,11 @@ function readAllLines(file)
     return lines
 end
 
-function writeAllLines(file, lines)
+function M.writeAllLines(file, lines)
     local f = assert(io.open(file, "w"))
     for i,line in ipairs(lines) do
         f:write(line .. '\n')
     end
 end
+
+return M

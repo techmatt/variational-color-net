@@ -1,20 +1,25 @@
 
--- TODO: turn this into a class
-require 'image'
+local threadPool = require('threadPool')
+local util = require('util')
+local torchUtil = require('torchUtil')
 
-function makeImageLoader()
+-- TODO: turn this into a class
+
+local M = {}
+
+function M.makeImageLoader(opt)
     print('Initializing images from: ' .. opt.imageList)
     
     local result = {}
-    result.imageList = readAllLines(opt.imageList)
+    result.opt = opt
+    result.imageList = util.readAllLines(opt.imageList)
     print('loaded ' .. #result.imageList .. ' images')
+    result.donkeys = threadPool.makeThreadPool(opt)
     return result
 end
 
-local loadSize   = {3, opt.imageSize, opt.imageSize}
-local sampleSize = {3, opt.cropSize, opt.cropSize}
-
-local function loadAndResizeImage(path)
+local function loadAndResizeImage(path, opt)
+   local loadSize = {3, opt.imageSize, opt.imageSize}
    local input = image.load(path, 3, 'float')
    -- find the smaller dimension, and resize it to loadSize (while keeping aspect ratio)
    if input:size(3) < input:size(2) then
@@ -26,9 +31,10 @@ local function loadAndResizeImage(path)
 end
 
 -- function to load the image, jitter it appropriately (random crops etc.)
-local function loadAndCropImage(path)
+local function loadAndCropImage(path, opt)
+   local sampleSize = {3, opt.cropSize, opt.cropSize}
    collectgarbage()
-   local input = loadAndResizeImage(path)
+   local input = loadAndResizeImage(path, opt)
    local iW = input:size(3)
    local iH = input:size(2)
 
@@ -47,17 +53,20 @@ local function loadAndCropImage(path)
    return out
 end
 
-function sampleBatch(imageLoader)
+function M.sampleBatch(imageLoader)
+    local opt = imageLoader.opt
+    local imageList = imageLoader.imageList
+    local donkeys = imageLoader.donkeys
+
     -- pick an index of the datapoint to load next
-    local reflectionPadding = 50
     local batchInputs = torch.FloatTensor(opt.batchSize, 1, opt.cropSize, opt.cropSize)
     local batchLabels = torch.FloatTensor(opt.batchSize, 3, opt.cropSize, opt.cropSize)
     
     for i = 1, opt.batchSize do
-        local imageFilename = imageLoader.imageList[ math.random( #imageLoader.imageList ) ]
+        local imageFilename = imageList[ math.random( #imageList ) ]
         donkeys:addjob(
             function()
-                local sourceImg = loadAndCropImage(imageFilename)
+                local sourceImg = loadAndCropImage(imageFilename, opt)
 
                 -- Grayscale image
                 local imgGray = torch.FloatTensor(1, opt.cropSize, opt.cropSize):zero()
@@ -66,7 +75,7 @@ function sampleBatch(imageLoader)
                 imgGray:add(0.114, sourceImg:select(1, 3))
                 imgGray:add(-0.5)
                 
-                local imgTarget = caffePreprocess(sourceImg:clone())
+                local imgTarget = torchUtil.caffePreprocess(sourceImg:clone())
                 
                 return imgGray, imgTarget
             end,
@@ -82,3 +91,7 @@ function sampleBatch(imageLoader)
     batch.labels = batchLabels
     return batch
 end
+
+
+
+return M

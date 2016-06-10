@@ -1,45 +1,4 @@
 
-require 'nn'
-require 'cunn'
-require 'cudnn'
-require 'optim'
-
--- from neural_style.lua
-
--- Define an nn Module to compute content loss in-place
-local ContentLoss, parent = torch.class('nn.ContentLoss', 'nn.Module')
-
-function ContentLoss:__init(strength, target, normalize)
-    parent.__init(self)
-    self.strength = strength
-    self.target = target
-    self.normalize = normalize or false
-    self.loss = 0
-    self.crit = nn.MSECriterion()
-end
-
-function ContentLoss:updateOutput(input)
-  if self.target and input:nElement() == self.target:nElement() then
-    self.loss = self.crit:forward(input, self.target) * self.strength
-  else
-    print('WARNING: Skipping content loss')
-  end
-  self.output = input
-  return self.output
-end
-
-function ContentLoss:updateGradInput(input, gradOutput)
-  if input:nElement() == self.target:nElement() then
-    self.gradInput = self.crit:backward(input, self.target)
-  end
-  if self.normalize then
-    self.gradInput:div(torch.norm(self.gradInput, 1) + 1e-8)
-  end
-  self.gradInput:mul(self.strength)
-  self.gradInput:add(gradOutput)
-  return self.gradInput
-end
-
 local TVLoss, parent = torch.class('nn.TVLoss', 'nn.Module')
 
 function TVLoss:__init(strength, batchSize)
@@ -77,26 +36,4 @@ function TVLoss:updateGradInput(input, gradOutput)
     self.gradInput:mul(self.strength)
     self.gradInput:add(gradOutput)
     return self.gradInput
-end
-
--- Preprocess an image before passing it to a Caffe model.
--- We need to rescale from [0, 1] to [0, 255], convert from RGB to BGR,
--- and subtract the mean pixel.
-function caffePreprocess(img)
-    local mean_pixel = torch.FloatTensor({103.939, 116.779, 123.68})
-    local perm = torch.LongTensor{3, 2, 1}
-    img = img:index(1, perm):mul(256.0)
-    mean_pixel = mean_pixel:view(3, 1, 1):expandAs(img)
-    img:add(-1, mean_pixel)
-    return img
-end
-
--- Undo the above preprocessing.
-function caffeDeprocess(img)
-    local mean_pixel = torch.CudaTensor({103.939, 116.779, 123.68})
-    mean_pixel = mean_pixel:view(3, 1, 1):expandAs(img)
-    img = img + mean_pixel
-    local perm = torch.LongTensor{3, 2, 1}
-    img = img:index(1, perm):div(256.0)
-    return img
 end

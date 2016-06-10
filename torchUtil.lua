@@ -1,8 +1,5 @@
-require 'torch'
-require 'math'
-require 'lfs'
 
-function getSize(tensor)
+local function getSize(tensor)
     if not tensor or not tensor.size then
         return '[nil]'
     elseif #tensor:size() == 2 then
@@ -22,7 +19,7 @@ function getSize(tensor)
     end
 end
 
-function describeNet(network, inputs)
+local function describeNet(network, inputs)
     print('dumping network, input size: ' .. getSize(inputs))
     network:forward(inputs)
     --local subnet = nn.Sequential()
@@ -37,7 +34,7 @@ function describeNet(network, inputs)
     end
 end
 
-function dumpNet(network, inputs, dir)
+local function dumpNet(network, inputs, dir)
     lfs.mkdir(dir)
     print('dumping network, input size: ' .. getSize(inputs))
     local subnet = nn.Sequential()
@@ -53,7 +50,7 @@ function dumpNet(network, inputs, dir)
     end
 end
 
-function saveTensor2(tensor, filename)
+local function saveTensor2(tensor, filename)
     local out = assert(io.open(filename, "w"))
     out:write(getSize(tensor) .. '\n')
     local maxDim = 32
@@ -71,7 +68,7 @@ function saveTensor2(tensor, filename)
     out:close()
 end
 
-function saveTensor3(tensor, filename)
+local function saveTensor3(tensor, filename)
     local out = assert(io.open(filename, "w"))
     out:write(getSize(tensor) .. '\n')
     local maxDim = 32
@@ -91,7 +88,7 @@ function saveTensor3(tensor, filename)
     out:close()
 end
 
-function saveTensor4(tensor, filename)
+local function saveTensor4(tensor, filename)
     local out = assert(io.open(filename, "w"))
     out:write(getSize(tensor) .. '\n')
     
@@ -116,7 +113,7 @@ function saveTensor4(tensor, filename)
     out:close()
 end
 
-function saveTensor(tensor, filename)
+local function saveTensor(tensor, filename)
     if tensor:nDimension() == 2 then
         saveTensor2(tensor, filename)
     elseif tensor:nDimension() == 3 then
@@ -128,7 +125,29 @@ function saveTensor(tensor, filename)
     end
 end
 
-function reflectionPadImageVertical(tensor, p)
+-- Preprocess an image before passing it to a Caffe model.
+-- We need to rescale from [0, 1] to [0, 255], convert from RGB to BGR,
+-- and subtract the mean pixel.
+local function caffePreprocess(img)
+    local mean_pixel = torch.FloatTensor({103.939, 116.779, 123.68})
+    local perm = torch.LongTensor{3, 2, 1}
+    img = img:index(1, perm):mul(256.0)
+    mean_pixel = mean_pixel:view(3, 1, 1):expandAs(img)
+    img:add(-1, mean_pixel)
+    return img
+end
+
+-- Undo the above preprocessing.
+local function caffeDeprocess(img)
+    local mean_pixel = torch.CudaTensor({103.939, 116.779, 123.68})
+    mean_pixel = mean_pixel:view(3, 1, 1):expandAs(img)
+    img = img + mean_pixel
+    local perm = torch.LongTensor{3, 2, 1}
+    img = img:index(1, perm):div(256.0)
+    return img
+end
+
+local function reflectionPadImageVertical(tensor, p)
     local C, W, H = tensor:size()[1], tensor:size()[2], tensor:size()[3]
     local result = tensor.new(C, W, H + p * 2)
     
@@ -150,7 +169,7 @@ function reflectionPadImageVertical(tensor, p)
     return result
 end
 
-function reflectionPadImageHorizontal(tensor, p)
+local function reflectionPadImageHorizontal(tensor, p)
     local C, W, H = tensor:size()[1], tensor:size()[2], tensor:size()[3]
     local result = tensor.new(C, W + p * 2, H)
     
@@ -172,9 +191,20 @@ function reflectionPadImageHorizontal(tensor, p)
     return result
 end
 
-function reflectionPadImage(tensor, padding)
+local function reflectionPadImage(tensor, padding)
     local result = reflectionPadImageVertical(tensor, padding)
     result = reflectionPadImageHorizontal(result, padding)
     return result
 end
+
+
+return {
+    getSize = getSize,
+    describeNet = describeNet,
+    dumpNet = dumpNet,
+    caffePreprocess = caffePreprocess,
+    caffeDeprocess = caffeDeprocess,
+    saveTensor = saveTensor,
+    reflectionPadImage = reflectionPadImage
+}
 
