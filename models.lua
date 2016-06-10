@@ -85,6 +85,28 @@ local function createEncoder(opt)
     return encoder
 end
 
+local function createSampler(opt)
+    -- First input is encoder output
+    -- Second input is randomness
+    local encoderOutput = nn.Identity()()
+    local randomness = nn.Identity()()
+
+    -- Turn encoder output into two equal sized blocks
+    -- First is mean, second is stddev
+    -- TODO: Slap some more residual blocks on each of these, to make them
+    --    less correlated?
+    local mean = nn.SpatialConvolution(128, 128, 3, 3, 1, 1, 1, 1)(encoderOutput)
+    local stddev = nn.SpatialConvolution(128, 128, 3, 3, 1, 1, 1, 1)(encoderOutput)
+
+    -- Exp the stddev to ensure positivity
+    stddev = nn.Exp()(stddev)
+
+    -- Shift and scale the randomness
+    local output = nn.CAddTable()({mean, nn.CMulTable()({stddev, randomness})})
+
+    return nn.gModule({encoderOutput, randomness}, {output})
+end
+
 local function createDecoder(opt)
     local decoder = nn.Sequential()
 
