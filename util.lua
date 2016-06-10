@@ -9,7 +9,7 @@ function M.getFileListRecursive(dir)
         if lfs.attributes(path,"mode") == "file" then
             result[#result + 1] = path
         elseif lfs.attributes(path,"mode") == "directory" and file:sub(1, 1) ~= '.' then
-            print('directory: ' .. file)
+            --print('directory: ' .. file)
             for k, v in ipairs(M.getFileListRecursive(path)) do
                 result[#result + 1] = v
             end
@@ -37,6 +37,7 @@ function M.readAllLines(file)
 end
 
 function M.writeAllLines(file, lines)
+    print('writing to ' .. file)
     local f = assert(io.open(file, "w"))
     for i,line in ipairs(lines) do
         f:write(line .. '\n')
@@ -64,6 +65,28 @@ function M.split(str, delim)
     -- Handle the last field
     result[nb + 1] = string.sub(str, lastPos)
     return result
+end
+
+function M.listFilesByDir(dir, outFileBase)
+    local files = M.getFileListRecursive(dir)
+    local L = {}
+    for i, file in ipairs(files) do
+        local parts = M.split(file, '/')
+        local filename = parts[#parts]
+        local folder = parts[#parts - 1]
+        if folder == 'outdoor' then folder = parts[#parts - 2] end
+        --print('entry: ' .. folder .. ' | ' .. filename)
+        if L[folder] == nil then L[folder] = {} end
+        table.insert(L[folder], file)
+    end
+    
+    local folderList = {}
+    for folder, fileList in pairs(L) do
+        table.insert(folderList, folder)
+        M.writeAllLines(outFileBase .. M.zeroPad(#folderList, 3) .. '.txt', fileList)
+    end
+    
+    M.writeAllLines(outFileBase .. 'Directory.txt', folderList)
 end
 
 return M

@@ -19,8 +19,10 @@ local model = models.createModelGraph(opt)
 
 --local allImages = util.getFileListRecursive('/home/dritchie/mscoco/')
 --util.writeAllLines(opt.imageList, allImages)
+
+--util.listFilesByDir('/home/mdfisher/ssd2/Places/images256/', 'data/places')
+
 collectgarbage()
-print('imagelist: ', opt.imageList)
 local imgLoader = imageLoader.makeImageLoader(opt)
 
 print('Saving everything to: ' .. opt.outDir)

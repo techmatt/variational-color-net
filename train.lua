@@ -43,7 +43,7 @@ end
 local trainLogger = nil
 local batchNumber               -- Current batch in current epoch
 local totalBatchCount = 0       -- Total # of batches across all epochs
-local lossEpoch
+local epochLoss = {}
 
 
 -- GPU inputs (preallocate)
@@ -113,7 +113,11 @@ local function trainBatchGraph(model, grayscaleInputsCPU, colorTargetsCPU, class
 
     cutorch.synchronize()
     batchNumber = batchNumber + 1
-    lossEpoch = lossEpoch + totalLoss
+    
+    epochLoss.total = epochLoss.total + totalLoss
+    epochLoss.class = epochLoss.class + classLoss
+    epochLoss.pixel = epochLoss.pixel + pixelLoss
+    epochLoss.content = epochLoss.content + contentLoss
 
     print(('Epoch: [%d][%d/%d]\tTime %.3f Err %.4f LR %.0e DataLoadingTime %.3f'):format(
         epoch, batchNumber, opt.epochSize, timer:time().real, totalLoss,
@@ -155,7 +159,12 @@ local function train(model, imgLoader, opt, epoch)
     model.graph:training()
 
     local tm = torch.Timer()
-    lossEpoch = 0
+    
+    epochLoss.total = 0
+    epochLoss.class = 0
+    epochLoss.pixel = 0
+    epochLoss.content = 0
+    
     for i = 1, opt.epochSize do
         local batch = imageLoader.sampleBatch(imgLoader)
         trainBatchGraph(model, batch.grayscaleInputs, batch.colorTargets, batch.classLabels, opt, epoch)
@@ -163,15 +172,22 @@ local function train(model, imgLoader, opt, epoch)
     
     cutorch.synchronize()
 
-    lossEpoch = lossEpoch / (opt.batchSize * opt.epochSize)
-
+    local scaleFactor = 1.0 / (opt.batchSize * opt.epochSize)
+    epochLoss.total = epochLoss.total * scaleFactor
+    epochLoss.class = epochLoss.class * scaleFactor
+    epochLoss.pixel = epochLoss.pixel * scaleFactor
+    epochLoss.content = epochLoss.content * scaleFactor
+    
     trainLogger:add{
-    ['avg loss (train set)'] = lossEpoch
+        ['total loss (train set)'] = epochLoss.total,
+        ['class loss (train set)'] = epochLoss.class,
+        ['pixel loss (train set)'] = epochLoss.pixel,
+        ['content loss (train set)'] = epochLoss.content,
     }
     print(string.format('Epoch: [%d][TRAINING SUMMARY] Total Time(s): %.2f\t'
         .. 'average loss (per batch): %.2f \t '
         .. 'accuracy(%%):\t top-1 %.2f\t',
-        epoch, tm:time().real, lossEpoch, lossEpoch))
+        epoch, tm:time().real, epochLoss.total, epochLoss.total))
     print('\n')
 
     -- save model
@@ -179,9 +195,13 @@ local function train(model, imgLoader, opt, epoch)
 
     -- clear the intermediate states in the model before saving to disk
     -- this saves lots of disk space
-    transformNetwork:clearState()
+    --model.graph:clearState()
+    model.downConvNet:clearState()
+    model.upConvNet:clearState()
+    model.classificationNet:clearState()
+    model.vggNet:clearState()
     
-    torch.save(opt.outDir .. 'models/transform' .. epoch .. '.t7', transformNetwork)
+    torch.save(opt.outDir .. 'models/transform' .. epoch .. '.t7', model.graph)
 end
 
 -------------------------------------------------------------------------------------------

@@ -151,7 +151,6 @@ local function createModelGraph(opt)
     r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent, r.targetCategories}, {r.classLosMul, r.pixelLossMul, r.contentLossMul})
     --r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent}, {r.pixelLossMul, r.contentLossMul})
     
-    
     cudnn.convert(r.graph, cudnn)
     
     r.graph = r.graph:cuda()

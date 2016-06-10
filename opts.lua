@@ -10,7 +10,7 @@ function M.parse(arg)
     
     ------------ Network loss options ---------------
     cmd:option('-outDir', 'out/', 'TODO')
-    cmd:option('-imageListBase', 'data/imageListPlaces', 'TODO')
+    cmd:option('-imageListBase', 'data/places', 'TODO')
     cmd:option('-batchSize', 8, 'mini-batch size (1 = pure stochastic)')
     cmd:option('-imageSize', 256, 'Smallest side of the resized image')
     cmd:option('-cropSize', 256, 'Height and Width of image crop to be used as input layer')
@@ -18,8 +18,8 @@ function M.parse(arg)
     
     cmd:option('-contentWeight', 1.0, 'TODO')
     cmd:option('-pixelWeight', 10.0, 'TODO')
-    cmd:option('-classWeight', 0.0001, 'TODO')
-    cmd:option('-TVWeight', 1e-4, 'TODO')
+    cmd:option('-classWeight', 10000.0, 'TODO')
+    cmd:option('-TVWeight', 1e-5, 'TODO')
     
     cmd:option('-pretrainedTransformModel', 'out/models/transform14.ty', 'TODO')
     
@@ -32,7 +32,7 @@ function M.parse(arg)
     cmd:option('-epochNumber',     1,     'Manual epoch number (useful on restarts)')
     
     ------------- Data options ------------------------
-    cmd:option('-nDonkeys',        8, 'number of donkeys to initialize (data loading threads)')
+    cmd:option('-nDonkeys',        12, 'number of donkeys to initialize (data loading threads)')
     
     local opt = cmd:parse(arg or {})
     return opt
