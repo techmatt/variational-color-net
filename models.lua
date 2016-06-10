@@ -71,16 +71,17 @@ end
 
 local function createModelGraph(opt)
     print('Creating model')
-   
-    local r = {}
-    r.grayscaleImage = nn.Identity()():annotate{name = 'grayscaleImage'}
-    r.colorImage = nn.Identity()():annotate{name = 'colorImage'}
-    r.targetContent = nn.Identity()():annotate{name = 'targetContent'}
-    r.targetCategories = nn.Identity()():annotate{name = 'targetCategories'}
-    
+
+    local r = {} 
     r.encoder = nn.Sequential()
     r.decoder = nn.Sequential()
-    r.classificationNet = nn.Sequential()
+   
+    local grayscaleImage = nn.Identity()():annotate{name = 'grayscaleImage'}
+    local colorImage = nn.Identity()():annotate{name = 'colorImage'}
+    local targetContent = nn.Identity()():annotate{name = 'targetContent'}
+    local targetCategories = nn.Identity()():annotate{name = 'targetCategories'}
+
+    local classificationNet = nn.Sequential()
     
     addConvElement(r.encoder, 1, 32, 9, 1, 4)
     addConvElement(r.encoder, 32, 64, 3, 2, 1)
@@ -108,49 +109,49 @@ local function createModelGraph(opt)
         r.decoder:add(tvModule)
     end
     
-    r.classificationNet:add(nn.SpatialConvolution(128, 1, 3, 3, 2, 2, 1, 1))
-    r.classificationNet:add(nn.ReLU(true))
-    r.classificationNet:add(nn.Reshape(opt.batchSize, 1024, false))
-    r.classificationNet:add(nn.Linear(1024, 512))
-    r.classificationNet:add(nn.ReLU(true))
-    r.classificationNet:add(nn.Linear(512, 256))
-    r.classificationNet:add(nn.ReLU(true))
-    r.classificationNet:add(nn.Linear(256, 205))
+    classificationNet:add(nn.SpatialConvolution(128, 1, 3, 3, 2, 2, 1, 1))
+    classificationNet:add(nn.ReLU(true))
+    classificationNet:add(nn.Reshape(opt.batchSize, 784, false))
+    classificationNet:add(nn.Linear(784, 512))
+    classificationNet:add(nn.ReLU(true))
+    classificationNet:add(nn.Linear(512, 256))
+    classificationNet:add(nn.ReLU(true))
+    classificationNet:add(nn.Linear(256, 205))
     
     print('adding class loss')
-    r.encoderOutput = r.encoder(r.grayscaleImage):annotate{name = 'encoderOutput'}
-    r.classProbabilities = r.classificationNet(r.encoderOutput):annotate{name = 'classProbabilities'}
-    r.classLoss = nn.CrossEntropyCriterion()({r.classProbabilities, r.targetCategories}):annotate{name = 'classLoss'}
-    --r.classLoss = nn.MSECriterion()({r.classProbabilities, r.targetCategories}):annotate{name = 'classLoss'}
+    local encoderOutput = r.encoder(grayscaleImage):annotate{name = 'encoderOutput'}
+    local classProbabilities = classificationNet(encoderOutput):annotate{name = 'classProbabilities'}
+    local classLoss = nn.CrossEntropyCriterion()({classProbabilities, targetCategories}):annotate{name = 'classLoss'}
+    --local classLoss = nn.MSECriterion()({classProbabilities, targetCategories}):annotate{name = 'classLoss'}
     
-    r.decoderOutput = r.decoder(r.encoderOutput):annotate{name = 'decoderOutput'}
+    local decoderOutput = r.decoder(encoderOutput):annotate{name = 'decoderOutput'}
 
     print('adding pixel loss')
-    r.pixelLoss = nn.MSECriterion()({r.decoderOutput, r.colorImage}):annotate{name = 'pixelLoss'}
+    local pixelLoss = nn.MSECriterion()({decoderOutput, colorImage}):annotate{name = 'pixelLoss'}
 
     r.vggNet = createVGGGraph(opt)
     
-    r.perceptualContent = r.vggNet(r.decoderOutput):annotate{name = 'perceptualContent'}
+    local perceptualContent = r.vggNet(decoderOutput):annotate{name = 'perceptualContent'}
     
     print('adding content loss')
-    r.contentLoss = nn.MSECriterion()({r.perceptualContent, r.targetContent}):annotate{name = 'contentLoss'}
+    local contentLoss = nn.MSECriterion()({perceptualContent, targetContent}):annotate{name = 'contentLoss'}
 
-    --[[r.jointLoss = nn.ParallelCriterion()
-    r.jointLoss:add(r.classLoss, 100.0)
-    r.jointLoss:add(r.pixelLoss, 10.0)
-    r.jointLoss:add(r.contentLoss, 1.0)
-    r.jointLoss = nn.ModuleFromCriterion(r.jointLoss)()
-    r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent, r.targetCategories}, {r.jointLoss})
+    --[[local jointLoss = nn.ParallelCriterion()
+    jointLoss:add(classLoss, 100.0)
+    jointLoss:add(pixelLoss, 10.0)
+    jointLoss:add(contentLoss, 1.0)
+    jointLoss = nn.ModuleFromCriterion(jointLoss)()
+    r.graph = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {jointLoss})
     ]]
     
-    --r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent, r.targetCategories}, {r.classLoss, r.pixelLoss, r.contentLoss})
+    --r.graph = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {classLoss, pixelLoss, contentLoss})
     
-    r.classLosMul = nn.MulConstant(opt.classWeight, true)(r.classLoss)
-    r.pixelLossMul = nn.MulConstant(opt.pixelWeight, true)(r.pixelLoss)
-    r.contentLossMul = nn.MulConstant(opt.contentWeight, true)(r.contentLoss)
-    r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent, r.targetCategories}, {r.classLosMul, r.pixelLossMul, r.contentLossMul})
-    --r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent}, {r.pixelLossMul, r.contentLossMul})
-    
+    local classLosMul = nn.MulConstant(opt.classWeight, true)(classLoss)
+    local pixelLossMul = nn.MulConstant(opt.pixelWeight, true)(pixelLoss)
+    local contentLossMul = nn.MulConstant(opt.contentWeight, true)(contentLoss)
+    r.graph = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {classLosMul, pixelLossMul, contentLossMul})
+    --r.graph = nn.gModule({grayscaleImage, colorImage, targetContent}, {pixelLossMul, contentLossMul})
+
     cudnn.convert(r.graph, cudnn)
     
     r.graph = r.graph:cuda()
