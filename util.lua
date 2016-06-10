@@ -43,4 +43,27 @@ function M.writeAllLines(file, lines)
     end
 end
 
+function M.zeroPad(int, length)
+    return string.format( "%0" .. length .. "d", int )
+end
+
+function M.split(str, delim)
+    -- Eliminate bad cases...
+    if string.find(str, delim) == nil then
+        return { str }
+    end
+    local result = {}
+    local pat = "(.-)" .. delim .. "()"
+    local nb = 0
+    local lastPos
+    for part, pos in string.gfind(str, pat) do
+        nb = nb + 1
+        result[nb] = part
+        lastPos = pos
+    end
+    -- Handle the last field
+    result[nb + 1] = string.sub(str, lastPos)
+    return result
+end
+
 return M

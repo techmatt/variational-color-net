@@ -145,20 +145,16 @@ local function createModelGraph(opt)
     
     --r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent, r.targetCategories}, {r.classLoss, r.pixelLoss, r.contentLoss})
     
-    r.classLosMul = nn.MulConstant(0.0001,true)(r.classLoss)
-    r.pixelLossMul = nn.MulConstant(10.0,true)(r.pixelLoss)
-    r.contentLossMul = nn.MulConstant(1.0,true)(r.contentLoss)
+    r.classLosMul = nn.MulConstant(opt.classWeight, true)(r.classLoss)
+    r.pixelLossMul = nn.MulConstant(opt.pixelWeight, true)(r.pixelLoss)
+    r.contentLossMul = nn.MulConstant(opt.contentWeight, true)(r.contentLoss)
     r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent, r.targetCategories}, {r.classLosMul, r.pixelLossMul, r.contentLossMul})
     --r.graph = nn.gModule({r.grayscaleImage, r.colorImage, r.targetContent}, {r.pixelLossMul, r.contentLossMul})
     
     
     cudnn.convert(r.graph, cudnn)
-    --cudnn.convert(r.transformNet, cudnn)
-    --cudnn.convert(r.vggNet, cudnn)
     
     r.graph = r.graph:cuda()
-    --r.transformNet = r.transformNet:cuda()
-    --r.vggNet = r.vggNet:cuda()
 
     graph.dot(r.graph.fg, 'graphForward', 'graphForward')
     graph.dot(r.graph.bg, 'graphBackward', 'graphBackward')

@@ -8,12 +8,16 @@ local torchUtil = require('torchUtil')
 local M = {}
 
 function M.makeImageLoader(opt)
-    print('Initializing images from: ' .. opt.imageList)
+    print('Initializing images from: ' .. opt.imageListBase)
     
     local result = {}
     result.opt = opt
-    result.imageList = util.readAllLines(opt.imageList)
-    print('loaded ' .. #result.imageList .. ' images')
+    result.imageLists = {}
+    for category = 1, opt.sceneCategoryCount do
+        local list = util.readAllLines(opt.imageListBase .. util.zeroPad(category, 3) .. '.txt')
+        table.insert(result.imageLists, list)
+        print('category ' .. category .. ' has ' .. #list .. ' images')
+    end
     result.donkeys = threadPool.makeThreadPool(opt)
     return result
 end
@@ -55,15 +59,19 @@ end
 
 function M.sampleBatch(imageLoader)
     local opt = imageLoader.opt
-    local imageList = imageLoader.imageList
+    local imageLists = imageLoader.imageLists
     local donkeys = imageLoader.donkeys
 
     -- pick an index of the datapoint to load next
-    local batchInputs = torch.FloatTensor(opt.batchSize, 1, opt.cropSize, opt.cropSize)
-    local batchLabels = torch.FloatTensor(opt.batchSize, 3, opt.cropSize, opt.cropSize)
+    local grayscaleInputs = torch.FloatTensor(opt.batchSize, 1, opt.cropSize, opt.cropSize)
+    local colorTargets = torch.FloatTensor(opt.batchSize, 3, opt.cropSize, opt.cropSize)
+    local classLabels = torch.IntTensor(opt.batchSize, 1)
     
-    for i = 1, opt.batchSize do
-        local imageFilename = imageList[ math.random( #imageList ) ]
+    for b = 1, opt.batchSize do
+        local imageCategory = math.random( #imageLists )
+        classLabels[b] = imageCategory
+        local list = imageLists[imageCategory]
+        local imageFilename = list[ math.random( #list ) ]
         donkeys:addjob(
             function()
                 local sourceImg = loadAndCropImage(imageFilename, opt)
@@ -75,20 +83,21 @@ function M.sampleBatch(imageLoader)
                 imgGray:add(0.114, sourceImg:select(1, 3))
                 imgGray:add(-0.5)
                 
-                local imgTarget = torchUtil.caffePreprocess(sourceImg:clone())
+                local imgColor = torchUtil.caffePreprocess(sourceImg:clone())
                 
-                return imgGray, imgTarget
+                return imgGray, imgColor
             end,
-            function(imgGray, imgTarget)
-                batchInputs[i] = imgGray
-                batchLabels[i] = imgTarget
+            function(imgGray, imgColor)
+                grayscaleInputs[b] = imgGray
+                colorTargets[b] = imgColor
             end)
     end
     donkeys:synchronize()
     
     local batch = {}
-    batch.inputs = batchInputs
-    batch.labels = batchLabels
+    batch.grayscaleInputs = grayscaleInputs
+    batch.colorTargets = colorTargets
+    batch.classLabels = classLabels
     return batch
 end
 

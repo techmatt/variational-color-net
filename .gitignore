@@ -3,3 +3,7 @@
 ._*
 /graph.dot
 /graph.svg
+/graphBackward.dot
+/graphBackward.svg
+/graphForward.dot
+/graphForward.svg

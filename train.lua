@@ -47,15 +47,15 @@ local lossEpoch
 
 
 -- GPU inputs (preallocate)
-local inputs = torch.CudaTensor()
-local labels = torch.CudaTensor()
+local grayscaleInputs = torch.CudaTensor()
+local colorTargets = torch.CudaTensor()
 local classLabels = torch.CudaTensor()
 
 local timer = torch.Timer()
 local dataTimer = torch.Timer()
 
 -- 4. trainBatch - Used by train() to train a single batch after the data is loaded.
-local function trainBatchGraph(model, inputsCPU, labelsCPU, opt, epoch)
+local function trainBatchGraph(model, grayscaleInputsCPU, colorTargetsCPU, classLabelsCPU, opt, epoch)
     local parametersGraph, gradParametersGraph = model.graph:getParameters()
     
     cutorch.synchronize()
@@ -64,21 +64,21 @@ local function trainBatchGraph(model, inputsCPU, labelsCPU, opt, epoch)
     timer:reset()
 
     -- transfer over to GPU
-    inputs:resize(inputsCPU:size()):copy(inputsCPU)
-    labels:resize(labelsCPU:size()):copy(labelsCPU)
+    grayscaleInputs:resize(grayscaleInputsCPU:size()):copy(grayscaleInputsCPU)
+    colorTargets:resize(colorTargetsCPU:size()):copy(colorTargetsCPU)
     
-    local classLabelsCPU = torch.IntTensor(opt.batchSize, 1)
+    --[[local classLabelsCPU = torch.IntTensor(opt.batchSize, 1)
     for i = 1, opt.batchSize do
         classLabelsCPU[i][1] = 1
-    end
+    end]]
     classLabels:resize(classLabelsCPU:size()):copy(classLabelsCPU)
 
     if totalBatchCount % 100 == 0 then
-        local inClone = labels[1]:clone()
+        local inClone = colorTargets[1]:clone()
         --inClone:add(0.5)
         inClone = torchUtil.caffeDeprocess(inClone)
         
-        local outClone = model.upConvNet:forward(model.downConvNet:forward(inputs))[1]:clone()
+        local outClone = model.upConvNet:forward(model.downConvNet:forward(grayscaleInputs))[1]:clone()
         outClone = torchUtil.caffeDeprocess(outClone)
         
         image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_in.jpg', inClone)
@@ -90,18 +90,18 @@ local function trainBatchGraph(model, inputsCPU, labelsCPU, opt, epoch)
     
     local classLoss, pixelLoss, contentLoss, totalLoss
     local feval = function(x)
-        local contentTargets = model.vggNet:forward(labels):clone()
+        local contentTargets = model.vggNet:forward(colorTargets):clone()
         
         model.graph:zeroGradParameters()
         
         --print(model.graph)
-        local outputLoss = model.graph:forward({inputs, labels, contentTargets, classLabels})
+        local outputLoss = model.graph:forward({grayscaleInputs, colorTargets, contentTargets, classLabels})
         
         classLoss = outputLoss[1][1]
         pixelLoss = outputLoss[2][1]
         contentLoss = outputLoss[3][1]
         
-        model.graph:backward({inputs, labels, contentTargets, classLabels}, outputLoss)
+        model.graph:backward({grayscaleInputs, colorTargets, contentTargets, classLabels}, outputLoss)
         
         totalLoss = classLoss + pixelLoss + contentLoss
         
@@ -158,7 +158,7 @@ local function train(model, imgLoader, opt, epoch)
     lossEpoch = 0
     for i = 1, opt.epochSize do
         local batch = imageLoader.sampleBatch(imgLoader)
-        trainBatchGraph(model, batch.inputs, batch.labels, opt, epoch)
+        trainBatchGraph(model, batch.grayscaleInputs, batch.colorTargets, batch.classLabels, opt, epoch)
     end
     
     cutorch.synchronize()
