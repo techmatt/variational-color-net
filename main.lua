@@ -17,7 +17,7 @@ local opt = opts.parse(arg)
 cutorch.setDevice(opt.GPU) -- by default, use GPU 1
 torch.manualSeed(opt.manualSeed)
 
-local model = models.createModelGraph(opt)
+local model = models.createModel(opt)
 
 --local allImages = util.getFileListRecursive('/home/dritchie/mscoco/')
 --util.writeAllLines(opt.imageList, allImages)
