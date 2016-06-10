@@ -72,15 +72,18 @@ end
 local function createEncoder(opt)
     local encoder = nn.Sequential()
 
-    addConvElement(encoder, 1, 32, 9, 1, 4)
+    --addConvElement(encoder, 1, 32, 9, 1, 4)
+    addConvElement(encoder, 1, 32, 7, 1, 2)
     addConvElement(encoder, 32, 64, 3, 2, 1)
     addConvElement(encoder, 64, 128, 3, 2, 1)
 
     addResidualBlock(encoder, 128, 128, 3, 1, 1)
     addResidualBlock(encoder, 128, 128, 3, 1, 1)
-    addResidualBlock(encoder, 128, 128, 3, 1, 1)
-    addResidualBlock(encoder, 128, 128, 3, 1, 1)
-    addResidualBlock(encoder, 128, 128, 3, 1, 1)
+    --addResidualBlock(encoder, 128, 128, 3, 1, 1)
+    --addResidualBlock(encoder, 128, 128, 3, 1, 1)
+    --addResidualBlock(encoder, 128, 128, 3, 1, 1)
+    
+    encoder:add(nn.ReLU(true))
 
     return encoder
 end
@@ -89,8 +92,8 @@ local function createDecoder(opt)
     local decoder = nn.Sequential()
 
     addResidualBlock(decoder, 128, 128, 3, 1, 1)
-    addResidualBlock(decoder, 128, 128, 3, 1, 1)
-    addResidualBlock(decoder, 128, 128, 3, 1, 1)
+    --addResidualBlock(decoder, 128, 128, 3, 1, 1)
+    --addResidualBlock(decoder, 128, 128, 3, 1, 1)
 
     addUpConvElement(decoder, 128, 64, 3, 2, 1, 1)
     addUpConvElement(decoder, 64, 32, 3, 2, 1, 1)
