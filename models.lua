@@ -152,46 +152,45 @@ local function createClassifier(opt)
     return classificationNet
 end
 
-local function createPredictionNet(opt, encoder, decoder)
+local function createPredictionNet(opt, subnets)
     -- Input nodes
-    local grayscaleImage = nn.Identity()():annotate{name = 'grayscaleImage'}
+    local grayscaleImage = nn.Identity()():annotate({name = 'grayscaleImage'})
 
     -- Intermediates
-    local encoderOutput = encoder(grayscaleImage):annotate{name = 'encoderOutput'}
-    local decoderOutput = decoder(encoderOutput):annotate{name = 'decoderOutput'}
+    local encoderOutput = subnets.encoder(grayscaleImage):annotate({name = 'encoderOutput'})
+    local decoderOutput = subnets.decoder(encoderOutput):annotate({name = 'decoderOutput'})
 
     local predictionNet = nn.gModule({grayscaleImage}, {decoderOutput})
-
     cudnn.convert(predictionNet, cudnn)
     predictionNet = predictionNet:cuda()
     return predictionNet
 end
 
-local function createTrainingNet(opt, encoder, decoder, classifier, vggNet)
+local function createTrainingNet(opt, subnets)
     -- Input nodes
-    local grayscaleImage = nn.Identity()():annotate{name = 'grayscaleImage'}
-    local colorImage = nn.Identity()():annotate{name = 'colorImage'}
-    local targetContent = nn.Identity()():annotate{name = 'targetContent'}
-    local targetCategories = nn.Identity()():annotate{name = 'targetCategories'}
+    local grayscaleImage = nn.Identity()():annotate({name = 'grayscaleImage'})
+    local colorImage = nn.Identity()():annotate({name = 'colorImage'})
+    local targetContent = nn.Identity()():annotate({name = 'targetContent'})
+    local targetCategories = nn.Identity()():annotate({name = 'targetCategories'})
 
     -- Intermediates
-    local encoderOutput = encoder(grayscaleImage):annotate{name = 'encoderOutput'}
-    local decoderOutput = decoder(encoderOutput):annotate{name = 'decoderOutput'}
+    local encoderOutput = subnets.encoder(grayscaleImage):annotate({name = 'encoderOutput'})
+    local decoderOutput = subnets.decoder(encoderOutput):annotate({name = 'decoderOutput'})
 
     -- Losses
     
     print('adding class loss')
-    local classProbabilitiesPreLog = classifier(encoderOutput):annotate{name = 'classProbabilitiesPreLog'}
-    local classProbabilities = cudnn.LogSoftMax()(classProbabilitiesPreLog):annotate{name = 'classProbabilities'}
+    local classProbabilitiesPreLog = subnets.classifier(encoderOutput):annotate({name = 'classProbabilitiesPreLog'})
+    local classProbabilities = cudnn.LogSoftMax()(classProbabilitiesPreLog):annotate({name = 'classProbabilities'})
     --local classLoss = cudnn.ClassNLLCriterion()({r.classProbabilities, targetCategories}):annotate{name = 'classLoss'}
-    local classLoss = nn.CrossEntropyCriterion()({classProbabilitiesPreLog, targetCategories}):annotate{name = 'classLoss'}
+    local classLoss = nn.CrossEntropyCriterion()({classProbabilitiesPreLog, targetCategories}):annotate({name = 'classLoss'})
     
     print('adding pixel loss')
-    local pixelLoss = nn.MSECriterion()({decoderOutput, colorImage}):annotate{name = 'pixelLoss'}
+    local pixelLoss = nn.MSECriterion()({decoderOutput, colorImage}):annotate({name = 'pixelLoss'})
 
     print('adding content loss')
-    local perceptualContent = vggNet(decoderOutput):annotate{name = 'perceptualContent'}
-    local contentLoss = nn.MSECriterion()({perceptualContent, targetContent}):annotate{name = 'contentLoss'}
+    local perceptualContent = subnets.vggNet(decoderOutput):annotate({name = 'perceptualContent'})
+    local contentLoss = nn.MSECriterion()({perceptualContent, targetContent}):annotate({name = 'contentLoss'})
 
     --[[local jointLoss = nn.ParallelCriterion()
     jointLoss:add(classLoss, 100.0)
@@ -226,14 +225,17 @@ local function createModel(opt)
     local r = {}
 
     -- Create individual sub-networks
-    local encoder = createEncoder(opt)
-    local decoder = createDecoder(opt)
-    local classifier = createClassifier(opt)
-    r.vggNet = createVGG(opt)  -- Needs to be exposed to gradients be zeroed
+    local subnets = {
+        encoder = createEncoder(opt),
+        decoder = createDecoder(opt),
+        classifier = createClassifier(opt),
+        vggNet = createVGG(opt)
+    }
+    r.vggNet = subnets.vggNet  -- Needs to be exposed to gradients be zeroed
 
     -- Create composite nets
-    r.predictionNet = createPredictionNet(opt, encoder, decoder)
-    r.trainingNet = createTrainingNet(opt, encoder, decoder, classifier, r.vggNet)
+    r.predictionNet = createPredictionNet(opt, subnets)
+    r.trainingNet = createTrainingNet(opt, subnets)
     
     return r
 end
