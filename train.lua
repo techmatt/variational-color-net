@@ -78,7 +78,7 @@ local function trainBatch(model, grayscaleInputsCPU, colorTargetsCPU, classLabel
         --inClone:add(0.5)
         inClone = torchUtil.caffeDeprocess(inClone)
         
-        local outClone = model.upConvNet:forward(model.downConvNet:forward(grayscaleInputs))[1]:clone()
+        local outClone = model.decoder:forward(model.encoder:forward(grayscaleInputs))[1]:clone()
         outClone = torchUtil.caffeDeprocess(outClone)
         
         image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_in.jpg', inClone)
