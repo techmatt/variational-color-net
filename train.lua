@@ -20,8 +20,9 @@ local optimState = {
 local function paramsForEpoch(epoch)
     local regimes = {
         -- start, end,    LR,   WD,
-        {  1,     1,   1e-3,   0 },
-        {  2,     3,   5e-4,   0 },
+        {  1,     1,   1e-2,   0 },
+        {  2,     2,   1e-3,   0 },
+        {  3,     3,   5e-4,   0 },
         {  4,     10,   1e-4,   0 },
         { 11,     20,   5e-5,   0 },
         { 21,     30,   2e-5,   0 },
@@ -90,16 +91,19 @@ local function trainBatch(model, grayscaleInputsCPU, colorTargetsCPU, classLabel
         model.trainingNet:zeroGradParameters()
         
         --print(model.trainingNet)
-        local outputLoss = model.trainingNet:forward({grayscaleInputs, colorTargets, contentTargets, classLabels})
-        
-        classLoss = classLoss + outputLoss[1][1]
-        pixelLoss = pixelLoss + outputLoss[2][1]
-        contentLoss = contentLoss + outputLoss[3][1]
-        classProbabilities = outputLoss[4]
-        
-        model.trainingNet:backward({grayscaleInputs, colorTargets, contentTargets, classLabels}, outputLoss)
-        
-        totalLoss = classLoss + pixelLoss + contentLoss
+        --TODO: make this correct, currently opt.superBatches must be 1. we need a new batch each time.
+        for superBatch = 1, opt.superBatches do
+            local outputLoss = model.trainingNet:forward({grayscaleInputs, colorTargets, contentTargets, classLabels})
+            
+            classLoss = classLoss + outputLoss[1][1]
+            pixelLoss = pixelLoss + outputLoss[2][1]
+            contentLoss = contentLoss + outputLoss[3][1]
+            classProbabilities = outputLoss[4]
+            
+            model.trainingNet:backward({grayscaleInputs, colorTargets, contentTargets, classLabels}, outputLoss)
+            
+            totalLoss = totalLoss + classLoss + pixelLoss + contentLoss
+        end
         
         model.vggNet:zeroGradParameters()
         
@@ -165,6 +169,20 @@ local function train(model, imgLoader, opt, epoch)
     end
     batchNumber = 0
 
+    -- save model
+    --this should happen at the end of training, but we keep breaking save so I put it first.
+    collectgarbage()
+
+    -- clear the intermediate states in the model before saving to disk
+    -- this saves lots of disk space
+    --model.trainingNet:clearState()
+    model.encoder:clearState()
+    model.decoder:clearState()
+    model.classifier:clearState()
+    model.vggNet:clearState()
+    
+    torch.save(opt.outDir .. 'models/transform' .. epoch .. '.t7', model.trainingNet)
+    
     print('==> doing epoch on training data:')
     print("==> online epoch # " .. epoch)
 
@@ -211,19 +229,6 @@ local function train(model, imgLoader, opt, epoch)
         .. 'accuracy(%%):\t top-1 %.2f\t',
         epoch, tm:time().real, epochStats.total, epochStats.total))
     print('\n')
-
-    -- save model
-    collectgarbage()
-
-    -- clear the intermediate states in the model before saving to disk
-    -- this saves lots of disk space
-    --model.trainingNet:clearState()
-    model.downConvNet:clearState()
-    model.upConvNet:clearState()
-    model.classificationNet:clearState()
-    model.vggNet:clearState()
-    
-    torch.save(opt.outDir .. 'models/transform' .. epoch .. '.t7', model.trainingNet)
 end
 
 -------------------------------------------------------------------------------------------
