@@ -73,21 +73,41 @@ local function createEncoder(opt)
     local encoder = nn.Sequential()
 
     --addConvElement(encoder, 1, 32, 9, 1, 4)
-    addConvElement(encoder, 1, 64, 3, 2, 1)
-    addConvElement(encoder, 64, 128, 3, 1, 1)
-    
-    addConvElement(encoder, 128, 128, 3, 2, 1)
-    addConvElement(encoder, 128, 256, 3, 1, 1)
-    
-    addConvElement(encoder, 256, 256, 3, 2, 1)
-    addConvElement(encoder, 256, 256, 3, 1, 1)
-    
-    addResidualBlock(encoder, 256, 256, 3, 1, 1)
-    addResidualBlock(encoder, 256, 256, 3, 1, 1)
+    addConvElement(encoder, 1, 32, 7, 1, 3)
+    addConvElement(encoder, 32, 64, 3, 2, 1)
+    addConvElement(encoder, 64, 128, 3, 2, 1)
+
+    addResidualBlock(encoder, 128, 128, 3, 1, 1)
+    --addResidualBlock(encoder, 128, 128, 3, 1, 1)
+    --addResidualBlock(encoder, 128, 128, 3, 1, 1)
+    --addResidualBlock(encoder, 128, 128, 3, 1, 1)
+    --addResidualBlock(encoder, 128, 128, 3, 1, 1)
     
     encoder:add(nn.ReLU(true))
 
     return encoder
+end
+
+local function createDecoder(opt)
+    local decoder = nn.Sequential()
+
+    addResidualBlock(decoder, 128, 128, 3, 1, 1)
+    --addResidualBlock(decoder, 128, 128, 3, 1, 1)
+    --addResidualBlock(decoder, 128, 128, 3, 1, 1)
+
+    addUpConvElement(decoder, 128, 64, 3, 2, 1, 1)
+    addUpConvElement(decoder, 64, 32, 3, 2, 1, 1)
+
+    decoder:add(nn.SpatialConvolution(32, 3, 3, 3, 1, 1, 1, 1))
+
+    if opt.TVWeight > 0 then
+        print('adding TV loss')
+        local tvModule = nn.TVLoss(opt.TVWeight, opt.batchSize):float()
+        tvModule:cuda()
+        decoder:add(tvModule)
+    end
+
+    return decoder
 end
 
 local function createParamPredictor(opt)
@@ -119,34 +139,9 @@ local function createReparameterizer(opt)
     return nn.gModule({mu, logSigmaSq, randomness}, {output})
 end
 
-local function createDecoder(opt)
-    local decoder = nn.Sequential()
-
-    addResidualBlock(decoder, 256, 256, 3, 1, 1)
-    
-    addConvElement(decoder, 256, 128, 3, 1, 1)
-    
-    addUpConvElement(decoder, 128, 64, 3, 2, 1, 1)
-    addConvElement(decoder, 64, 64, 3, 1, 1)
-    
-    addUpConvElement(decoder, 64, 32, 3, 2, 1, 1)
-    addUpConvElement(decoder, 32, 16, 3, 2, 1, 1)
-
-    decoder:add(nn.SpatialConvolution(16, 3, 3, 3, 1, 1, 1, 1))
-
-    if opt.TVWeight > 0 then
-        print('adding TV loss')
-        local tvModule = nn.TVLoss(opt.TVWeight, opt.batchSize):float()
-        tvModule:cuda()
-        decoder:add(tvModule)
-    end
-
-    return decoder
-end
-
 local function createClassifier(opt)
     local classificationNet = nn.Sequential()
-    classificationNet:add(nn.SpatialConvolution(256, 1, 3, 3, 1, 1, 1, 1))
+    classificationNet:add(nn.SpatialConvolution(128, 1, 3, 3, 2, 2, 1, 1))
     classificationNet:add(nn.ReLU(true))
     classificationNet:add(nn.Reshape(opt.batchSize, 784, false))
     classificationNet:add(nn.Linear(784, 512))
