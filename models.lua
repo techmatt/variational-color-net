@@ -44,7 +44,7 @@ local function addResidualBlock(network,iChannels,oChannels,size,stride,padding)
     end
 end
 
-local function createVGGGraph(opt)
+local function createVGG(opt)
     local contentBatch = torch.FloatTensor(opt.batchSize, 3, opt.cropSize, opt.cropSize)
     
     local vggIn = loadcaffe.load('models/VGG_ILSVRC_19_layers_deploy.prototxt',
@@ -88,26 +88,33 @@ local function createEncoder(opt)
     return encoder
 end
 
-local function createSampler(opt)
-    -- First input is encoder output
-    -- Second input is randomness
+local function createParamPredictor(opt)
+    -- Input is encoder output
     local encoderOutput = nn.Identity()()
-    local randomness = nn.Identity()()
 
     -- Turn encoder output into two equal sized blocks
-    -- First is mean, second is stddev
+    -- First is mean, second is log(stddev^2)
     -- TODO: Slap some more residual blocks on each of these, to make them
     --    less correlated?
-    local mean = nn.SpatialConvolution(128, 128, 3, 3, 1, 1, 1, 1)(encoderOutput)
-    local stddev = nn.SpatialConvolution(128, 128, 3, 3, 1, 1, 1, 1)(encoderOutput)
+    local mu = nn.SpatialConvolution(128, 128, 3, 3, 1, 1, 1, 1)(encoderOutput)
+    local logSigmaSq = nn.SpatialConvolution(128, 128, 3, 3, 1, 1, 1, 1)(encoderOutput)
 
-    -- Exp the stddev to ensure positivity
-    stddev = nn.Exp()(stddev)
+    return nn.gModule({encoderOutput}, {mu, logSigmaSq})
+end
+
+local function createReparameterizer(opt)
+    -- Input is {mu, logSigmaSq, randomness}
+    local mu = nn.Identity()()
+    local logSigmaSq = nn.Identity()()
+    local randomness = nn.Identity()()
+
+    -- Compute sigma (log(sigma^2) = 2log(sigma))
+    local sigma = nn.Exp()(nn.MulConstant(0.5)(logSigmaSq))
 
     -- Shift and scale the randomness
-    local output = nn.CAddTable()({mean, nn.CMulTable()({stddev, randomness})})
+    local output = nn.CAddTable()({mu, nn.CMulTable()({sigma, randomness})})
 
-    return nn.gModule({encoderOutput, randomness}, {output})
+    return nn.gModule({mu, logSigmaSq, randomness}, {output})
 end
 
 local function createDecoder(opt)
@@ -145,88 +152,95 @@ local function createClassifier(opt)
     return classificationNet
 end
 
-local function createModelGraph(opt)
-    print('Creating model')
-
-    -- Return table
-    local r = {}
-
-    ---------------------------------------------------------------------------
-
-    -- Create individual sub-networks
-    local encoder = createEncoder(opt)
-    local decoder = createDecoder(opt)
-    local classifier = createClassifier(opt) 
-
-    ---------------------------------------------------------------------------
-
-    -- Network that just predicts grayscale -> color images
-    r.predictionNet = nn.Sequential()
-    r.predictionNet:add(encoder)
-    r.predictionNet:add(decoder)
-    cudnn.convert(r.predictionNet, cudnn)
-    r.predictionNet = r.predictionNet:cuda()
-
-    ---------------------------------------------------------------------------
-
-    -- Graph for training network
-
+local function createPredictionNet(opt, subnets)
     -- Input nodes
-    local grayscaleImage = nn.Identity()():annotate{name = 'grayscaleImage'}
-    local colorImage = nn.Identity()():annotate{name = 'colorImage'}
-    local targetContent = nn.Identity()():annotate{name = 'targetContent'}
-    local targetCategories = nn.Identity()():annotate{name = 'targetCategories'}
+    local grayscaleImage = nn.Identity()():annotate({name = 'grayscaleImage'})
 
     -- Intermediates
-    local encoderOutput = encoder(grayscaleImage):annotate{name = 'encoderOutput'}
-    local decoderOutput = decoder(encoderOutput):annotate{name = 'decoderOutput'}
+    local encoderOutput = subnets.encoder(grayscaleImage):annotate({name = 'encoderOutput'})
+    local decoderOutput = subnets.decoder(encoderOutput):annotate({name = 'decoderOutput'})
 
+    local predictionNet = nn.gModule({grayscaleImage}, {decoderOutput})
+    cudnn.convert(predictionNet, cudnn)
+    predictionNet = predictionNet:cuda()
+    return predictionNet
+end
+
+local function createTrainingNet(opt, subnets)
+    -- Input nodes
+    local grayscaleImage = nn.Identity()():annotate({name = 'grayscaleImage'})
+    local colorImage = nn.Identity()():annotate({name = 'colorImage'})
+    local targetContent = nn.Identity()():annotate({name = 'targetContent'})
+    local targetCategories = nn.Identity()():annotate({name = 'targetCategories'})
+
+    -- Intermediates
+    local encoderOutput = subnets.encoder(grayscaleImage):annotate({name = 'encoderOutput'})
+    local decoderOutput = subnets.decoder(encoderOutput):annotate({name = 'decoderOutput'})
 
     -- Losses
     
     print('adding class loss')
-    local encoderOutput = encoder(grayscaleImage):annotate{name = 'encoderOutput'}
-    local classProbabilitiesPreLog = classifier(encoderOutput):annotate{name = 'classProbabilitiesPreLog'}
-    local classProbabilities = cudnn.LogSoftMax()(classProbabilitiesPreLog):annotate{name = 'classProbabilities'}
+    local classProbabilitiesPreLog = subnets.classifier(encoderOutput):annotate({name = 'classProbabilitiesPreLog'})
+    local classProbabilities = cudnn.LogSoftMax()(classProbabilitiesPreLog):annotate({name = 'classProbabilities'})
     --local classLoss = cudnn.ClassNLLCriterion()({r.classProbabilities, targetCategories}):annotate{name = 'classLoss'}
-    local classLoss = nn.CrossEntropyCriterion()({classProbabilitiesPreLog, targetCategories}):annotate{name = 'classLoss'}
+    local classLoss = nn.CrossEntropyCriterion()({classProbabilitiesPreLog, targetCategories}):annotate({name = 'classLoss'})
     
     print('adding pixel loss')
-    local pixelLoss = nn.MSECriterion()({decoderOutput, colorImage}):annotate{name = 'pixelLoss'}
+    local pixelLoss = nn.MSECriterion()({decoderOutput, colorImage}):annotate({name = 'pixelLoss'})
 
     print('adding content loss')
-    r.vggNet = createVGGGraph(opt)  -- Needs to be exposed to gradients be zeroed
-    local perceptualContent = r.vggNet(decoderOutput):annotate{name = 'perceptualContent'}
-    local contentLoss = nn.MSECriterion()({perceptualContent, targetContent}):annotate{name = 'contentLoss'}
+    local perceptualContent = subnets.vggNet(decoderOutput):annotate({name = 'perceptualContent'})
+    local contentLoss = nn.MSECriterion()({perceptualContent, targetContent}):annotate({name = 'contentLoss'})
 
     --[[local jointLoss = nn.ParallelCriterion()
     jointLoss:add(classLoss, 100.0)
     jointLoss:add(pixelLoss, 10.0)
     jointLoss:add(contentLoss, 1.0)
     jointLoss = nn.ModuleFromCriterion(jointLoss)()
-    r.trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {jointLoss})
+    local trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {jointLoss})
     ]]
 
-    --r.trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {classLoss, pixelLoss, contentLoss})
+    --local trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {classLoss, pixelLoss, contentLoss})
     
     local classLosMul = nn.MulConstant(opt.classWeight, true)(classLoss)
     local pixelLossMul = nn.MulConstant(opt.pixelWeight, true)(pixelLoss)
     local contentLossMul = nn.MulConstant(opt.contentWeight, true)(contentLoss)
 
     -- Full training network including all loss functions
-    r.trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {classLosMul, pixelLossMul, contentLossMul, classProbabilities})
-    --r.trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent}, {pixelLossMul, contentLossMul})
-    cudnn.convert(r.trainingNet, cudnn)
-    r.trainingNet = r.trainingNet:cuda()
-    graph.dot(r.trainingNet.fg, 'graphForward', 'graphForward')
-    graph.dot(r.trainingNet.bg, 'graphBackward', 'graphBackward')
+    local trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {classLosMul, pixelLossMul, contentLossMul, classProbabilities})
+    --local trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent}, {pixelLossMul, contentLossMul})
 
-    ---------------------------------------------------------------------------
+
+    cudnn.convert(trainingNet, cudnn)
+    trainingNet = trainingNet:cuda()
+    graph.dot(trainingNet.fg, 'graphForward', 'graphForward')
+    graph.dot(trainingNet.bg, 'graphBackward', 'graphBackward')
+    return trainingNet
+end
+
+local function createModel(opt)
+    print('Creating model')
+
+    -- Return table
+    local r = {}
+
+    -- Create individual sub-networks
+    local subnets = {
+        encoder = createEncoder(opt),
+        decoder = createDecoder(opt),
+        classifier = createClassifier(opt),
+        vggNet = createVGG(opt)
+    }
+    r.vggNet = subnets.vggNet  -- Needs to be exposed to gradients be zeroed
+
+    -- Create composite nets
+    r.predictionNet = createPredictionNet(opt, subnets)
+    r.trainingNet = createTrainingNet(opt, subnets)
     
     return r
 end
 
 
 return {
-    createModelGraph = createModelGraph
+    createModel = createModel
 }
