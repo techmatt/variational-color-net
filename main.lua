@@ -9,7 +9,7 @@ local models = require('models.lua')
 local imageLoader = require('imageLoader.lua')
 local train = paths.dofile('train.lua')
 
-
+cudnn.benchmark = true
 torch.setdefaulttensortype('torch.FloatTensor')
 
 local opt = opts.parse(arg)
