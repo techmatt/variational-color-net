@@ -20,7 +20,7 @@ local optimState = {
 local function paramsForEpoch(epoch)
     local regimes = {
         -- start, end,    LR,   WD,
-        {  1,     1,   1e-2,   0 },
+        {  1,     1,   1e-3,   0 },
         {  2,     2,   1e-3,   0 },
         {  3,     3,   5e-4,   0 },
         {  4,     10,   4e-5,   0 },
@@ -167,7 +167,7 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
     local dataLoadingTime = dataTimer:time().real
     timer:reset()
 
-    local classLoss, pixelLoss, contentLoss, totalLoss = 0, 0, 0, 0
+    local classLossSum, pixelLossSum, contentLossSum, totalLossSum = 0, 0, 0, 0
     local top1, top5 = 0, 0
     local feval = function(x)
         model.trainingNet:zeroGradParameters()
@@ -195,10 +195,16 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             
             local outputLoss = model.trainingNet:forward({grayscaleInputs, colorTargets, contentTargets, classLabels})
             
-            classLoss = classLoss + outputLoss[1][1]
-            pixelLoss = pixelLoss + outputLoss[2][1]
-            contentLoss = contentLoss + outputLoss[3][1]
-            local classProbabilities = outputLoss[4]
+            local classLoss = outputLoss[1][1]
+            local pixelLoss = outputLoss[2][1]
+            local contentLoss = outputLoss[3][1]
+            
+            classLossSum = classLossSum + classLoss
+            pixelLossSum = pixelLossSum + pixelLoss
+            contentLossSum = contentLossSum + contentLoss
+            totalLossSum = totalLossSum + classLoss + pixelLoss + contentLoss
+            
+            local classProbabilities = model.classProbabilities.data.module.output
             
             model.trainingNet:backward({grayscaleInputs, colorTargets, contentTargets, classLabels}, outputLoss)
             
@@ -207,14 +213,14 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
                     local _, predictions = classProbabilities:float():sort(2, true) -- descending
                     for b = 1, opt.batchSize do
                         --print(predictions[b][1] .. ' vs ' .. classLabelsCPU[b][1])
-                        if predictions[b][1] == batch.classLabels[b][1] then
+                        if predictions[b][1] == batch.classLabels[b] then
                             top1 = top1 + 1
                         end
-                        if predictions[b][1] == batch.classLabels[b][1] or
-                           predictions[b][2] == batch.classLabels[b][1] or
-                           predictions[b][3] == batch.classLabels[b][1] or
-                           predictions[b][4] == batch.classLabels[b][1] or
-                           predictions[b][5] == batch.classLabels[b][1] then
+                        if predictions[b][1] == batch.classLabels[b] or
+                           predictions[b][2] == batch.classLabels[b] or
+                           predictions[b][3] == batch.classLabels[b] or
+                           predictions[b][4] == batch.classLabels[b] or
+                           predictions[b][5] == batch.classLabels[b] then
                             top5 = top5 + 1
                         end
                     end
@@ -222,36 +228,34 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
                     top5 = top5 * 100 / opt.batchSize
                 end
             end
-            
-            totalLoss = totalLoss + classLoss + pixelLoss + contentLoss
         end
         
         model.vggNet:zeroGradParameters()
         
-        return totalLoss, gradParameters
+        return totalLossSum, gradParameters
     end
     optim.adam(feval, parameters, optimState)
 
     cutorch.synchronize()
     batchNumber = batchNumber + 1
     
-    epochStats.total = epochStats.total + totalLoss
-    epochStats.class = epochStats.class + classLoss
-    epochStats.pixel = epochStats.pixel + pixelLoss
-    epochStats.content = epochStats.content + contentLoss
+    epochStats.total = epochStats.total + totalLossSum
+    epochStats.class = epochStats.class + classLossSum
+    epochStats.pixel = epochStats.pixel + pixelLossSum
+    epochStats.content = epochStats.content + contentLossSum
     
     epochStats.top1Accuracy = top1
     epochStats.top5Accuracy = top5
 
     print(('Epoch: [%d][%d/%d]\tTime %.3f Err %.4f LR %.0e DataLoadingTime %.3f'):format(
-        epoch, batchNumber, opt.epochSize, timer:time().real, totalLoss,
+        epoch, batchNumber, opt.epochSize, timer:time().real, totalLossSum,
         optimState.learningRate, dataLoadingTime))
         
     print(string.format('  Top 1 accuracy: %f%%', top1))
     print(string.format('  Top 5 accuracy: %f%%', top5))
-    print(string.format('  Class loss: %f', classLoss))
-    print(string.format('  Pixel loss: %f', pixelLoss))
-    print(string.format('  Content loss: %f', contentLoss))
+    print(string.format('  Class loss: %f', classLossSum))
+    print(string.format('  Pixel loss: %f', pixelLossSum))
+    print(string.format('  Content loss: %f', contentLossSum))
     
     dataTimer:reset()
     totalBatchCount = totalBatchCount + 1

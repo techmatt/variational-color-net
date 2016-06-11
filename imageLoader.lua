@@ -70,7 +70,7 @@ function M.sampleBatch(imageLoader)
     -- pick an index of the datapoint to load next
     local grayscaleInputs = torch.FloatTensor(opt.batchSize, 1, opt.cropSize, opt.cropSize)
     local colorTargets = torch.FloatTensor(opt.batchSize, 3, opt.cropSize, opt.cropSize)
-    local classLabels = torch.IntTensor(opt.batchSize, 1)
+    local classLabels = torch.IntTensor(opt.batchSize)
     
     for b = 1, opt.batchSize do
         local imageCategory = math.random( #imageLists )

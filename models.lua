@@ -141,14 +141,20 @@ end
 
 local function createClassifier(opt)
     local classificationNet = nn.Sequential()
-    classificationNet:add(nn.SpatialConvolution(128, 1, 3, 3, 2, 2, 1, 1))
+    classificationNet:add(nn.SpatialConvolution(128, 128, 3, 3, 2, 2, 1, 1))
+    classificationNet:add(nn.SpatialBatchNormalization(128, 1e-3))
     classificationNet:add(nn.ReLU(true))
-    classificationNet:add(nn.Reshape(opt.batchSize, 784, false))
-    classificationNet:add(nn.Linear(784, 512))
+    classificationNet:add(nn.SpatialConvolution(128, 32, 3, 3, 2, 2, 1, 1))
+    classificationNet:add(nn.SpatialBatchNormalization(32, 1e-3))
     classificationNet:add(nn.ReLU(true))
-    classificationNet:add(nn.Linear(512, 256))
+    classificationNet:add(nn.Reshape(6272, true))
+    classificationNet:add(nn.Linear(6272, 2048))
+    classificationNet:add(nn.BatchNormalization(2048, 1e-3))
     classificationNet:add(nn.ReLU(true))
-    classificationNet:add(nn.Linear(256, 205))
+    classificationNet:add(nn.Linear(2048, 1024))
+    classificationNet:add(nn.BatchNormalization(1024, 1e-3))
+    classificationNet:add(nn.ReLU(true))
+    classificationNet:add(nn.Linear(1024, 205))
     return classificationNet
 end
 
@@ -182,8 +188,8 @@ local function createTrainingNet(opt, subnets)
     print('adding class loss')
     local classProbabilitiesPreLog = subnets.classifier(encoderOutput):annotate({name = 'classProbabilitiesPreLog'})
     local classProbabilities = cudnn.LogSoftMax()(classProbabilitiesPreLog):annotate({name = 'classProbabilities'})
-    --local classLoss = cudnn.ClassNLLCriterion()({r.classProbabilities, targetCategories}):annotate{name = 'classLoss'}
-    local classLoss = nn.CrossEntropyCriterion()({classProbabilitiesPreLog, targetCategories}):annotate({name = 'classLoss'})
+    local classLoss = nn.ClassNLLCriterion()({classProbabilities, targetCategories}):annotate{name = 'classLoss'}
+    --local classLoss = nn.CrossEntropyCriterion()({classProbabilitiesPreLog, targetCategories}):annotate({name = 'classLoss'})
     
     print('adding pixel loss')
     local pixelLoss = nn.MSECriterion()({decoderOutput, colorImage}):annotate({name = 'pixelLoss'})
@@ -207,15 +213,13 @@ local function createTrainingNet(opt, subnets)
     local contentLossMul = nn.MulConstant(opt.contentWeight, true)(contentLoss)
 
     -- Full training network including all loss functions
-    local trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {classLosMul, pixelLossMul, contentLossMul, classProbabilities})
-    --local trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent}, {pixelLossMul, contentLossMul})
-
+    local trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {classLosMul, pixelLossMul, contentLossMul})
 
     cudnn.convert(trainingNet, cudnn)
     trainingNet = trainingNet:cuda()
     graph.dot(trainingNet.fg, 'graphForward', 'graphForward')
     graph.dot(trainingNet.bg, 'graphBackward', 'graphBackward')
-    return trainingNet
+    return trainingNet, classProbabilities
 end
 
 local function createModel(opt)
@@ -238,7 +242,7 @@ local function createModel(opt)
 
     -- Create composite nets
     r.predictionNet = createPredictionNet(opt, subnets)
-    r.trainingNet = createTrainingNet(opt, subnets)
+    r.trainingNet, r.classProbabilities = createTrainingNet(opt, subnets)
     
     return r
 end
