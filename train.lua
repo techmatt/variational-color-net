@@ -20,7 +20,7 @@ local optimState = {
 local function paramsForEpoch(epoch)
     local regimes = {
         -- start, end,    LR,   WD,
-        {  1,     1,   1e-3,   0 },
+        {  1,     1,   1e-2,   0 },
         {  2,     2,   1e-3,   0 },
         {  3,     3,   5e-4,   0 },
         {  4,     10,   4e-5,   0 },
