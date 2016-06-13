@@ -20,7 +20,7 @@ local optimState = {
 local function paramsForEpoch(epoch)
     local regimes = {
         -- start, end,    LR,   WD,
-        {  1,     1,   1e-2,   0 },
+        {  1,     1,   1e-3,   0 },
         {  2,     2,   1e-3,   0 },
         {  3,     3,   5e-4,   0 },
         {  4,     10,   4e-5,   0 },
@@ -53,119 +53,15 @@ local classLabels = torch.CudaTensor()
 local timer = torch.Timer()
 local dataTimer = torch.Timer()
 
--- 4. trainBatch - Used by train() to train a single batch after the data is loaded.
-local function trainBatch(model, grayscaleInputsCPU, colorTargetsCPU, classLabelsCPU, opt, epoch)
-    
-    local parameters, gradParameters = model.trainingNet:getParameters()
-    
-    cutorch.synchronize()
-    
-    local dataLoadingTime = dataTimer:time().real
-    timer:reset()
-
-    -- transfer over to GPU
-    grayscaleInputs:resize(grayscaleInputsCPU:size()):copy(grayscaleInputsCPU)
-    colorTargets:resize(colorTargetsCPU:size()):copy(colorTargetsCPU)
-    classLabels:resize(classLabelsCPU:size()):copy(classLabelsCPU)
-
-    if totalBatchCount % 100 == 0 then
-        local inClone = colorTargets[1]:clone()
-        --inClone:add(0.5)
-        inClone = torchUtil.caffeDeprocess(inClone)
-        
-        local outClone = model.predictionNet:forward(grayscaleInputs)[1]:clone()
-        outClone = torchUtil.caffeDeprocess(outClone)
-        
-        image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_in.jpg', inClone)
-        image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_out.jpg', outClone)
-    end
-    
-    --local g = model.trainingNet:listModules()
-    --print(g)
-    
-    local classLoss, pixelLoss, contentLoss, totalLoss = 0, 0, 0, 0
-    local classProbabilities
-    local feval = function(x)
-        local contentTargets = model.vggNet:forward(colorTargets):clone()
-        
-        model.trainingNet:zeroGradParameters()
-        
-        --print(model.trainingNet)
-        --TODO: make this correct, currently opt.superBatches must be 1. we need a new batch each time.
-        for superBatch = 1, opt.superBatches do
-            local outputLoss = model.trainingNet:forward({grayscaleInputs, colorTargets, contentTargets, classLabels})
-            
-            classLoss = classLoss + outputLoss[1][1]
-            pixelLoss = pixelLoss + outputLoss[2][1]
-            contentLoss = contentLoss + outputLoss[3][1]
-            classProbabilities = outputLoss[4]
-            
-            model.trainingNet:backward({grayscaleInputs, colorTargets, contentTargets, classLabels}, outputLoss)
-            
-            totalLoss = totalLoss + classLoss + pixelLoss + contentLoss
-        end
-        
-        model.vggNet:zeroGradParameters()
-        
-        return totalLoss, gradParameters
-    end
-    optim.adam(feval, parameters, optimState)
-
-    cutorch.synchronize()
-    batchNumber = batchNumber + 1
-    
-    epochStats.total = epochStats.total + totalLoss
-    epochStats.class = epochStats.class + classLoss
-    epochStats.pixel = epochStats.pixel + pixelLoss
-    epochStats.content = epochStats.content + contentLoss
-
-    local top1 = 0
-    local top5 = 0
-    do
-        local _, predictions = classProbabilities:float():sort(2, true) -- descending
-        for b = 1, opt.batchSize do
-            --print(predictions[b][1] .. ' vs ' .. classLabelsCPU[b][1])
-            if predictions[b][1] == classLabelsCPU[b][1] then
-                top1 = top1 + 1
-            end
-            if predictions[b][1] == classLabelsCPU[b][1] or
-               predictions[b][2] == classLabelsCPU[b][1] or
-               predictions[b][3] == classLabelsCPU[b][1] or
-               predictions[b][4] == classLabelsCPU[b][1] or
-               predictions[b][5] == classLabelsCPU[b][1] then
-                top5 = top5 + 1
-            end
-        end
-        top1 = top1 * 100 / opt.batchSize
-        top5 = top5 * 100 / opt.batchSize
-    end
-    
-    epochStats.top1Accuracy = top1
-    epochStats.top5Accuracy = top5
-
-    print(('Epoch: [%d][%d/%d]\tTime %.3f Err %.4f LR %.0e DataLoadingTime %.3f'):format(
-        epoch, batchNumber, opt.epochSize, timer:time().real, totalLoss,
-        optimState.learningRate, dataLoadingTime))
-        
-    print(string.format('  Top 1 accuracy: %f%%', top1))
-    print(string.format('  Top 5 accuracy: %f%%', top5))
-    print(string.format('  Class loss: %f', classLoss))
-    print(string.format('  Pixel loss: %f', pixelLoss))
-    print(string.format('  Content loss: %f', contentLoss))
-    
-    dataTimer:reset()
-    totalBatchCount = totalBatchCount + 1
-end
-
 -- 4. trainSuperBatch - Used by train() to train a superbatch.
 local function trainSuperBatch(model, imgLoader, opt, epoch)
     
     local parameters, gradParameters = model.trainingNet:getParameters()
     
-    cutorch.synchronize()
-    
     local dataLoadingTime = dataTimer:time().real
     timer:reset()
+    
+    cutorch.synchronize()
 
     local classLossSum, pixelLossSum, contentLossSum, totalLossSum = 0, 0, 0, 0
     local top1, top5 = 0, 0

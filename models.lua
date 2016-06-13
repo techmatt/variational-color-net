@@ -9,6 +9,12 @@ local function addConvElement(network,iChannels,oChannels,size,stride,padding)
     network:add(nn.ReLU(true))
 end
 
+local function addLinearElement(network,iChannels,oChannels)
+    network:add(nn.Linear(iChannels, oChannels))
+    network:add(nn.BatchNormalization(oChannels, 1e-3))
+    network:add(nn.ReLU(true))
+end
+
 local function addUpConvElement(network,iChannels,oChannels,size,stride,padding,extra)
     network:add(nn.SpatialFullConvolution(iChannels,oChannels,size,size,stride,stride,padding,padding,extra,extra))
     --network:add(nn.SpatialUpSamplingNearest(stride))
@@ -72,33 +78,68 @@ end
 local function createEncoder(opt)
     local encoder = nn.Sequential()
 
-    --addConvElement(encoder, 1, 32, 9, 1, 4)
-    addConvElement(encoder, 1, 32, 7, 1, 3)
-    addConvElement(encoder, 32, 64, 3, 2, 1)
-    addConvElement(encoder, 64, 128, 3, 2, 1)
-
-    addResidualBlock(encoder, 128, 128, 3, 1, 1)
-    addResidualBlock(encoder, 128, 128, 3, 1, 1)
-    addResidualBlock(encoder, 128, 128, 3, 1, 1)
-    --addResidualBlock(encoder, 128, 128, 3, 1, 1)
-    --addResidualBlock(encoder, 128, 128, 3, 1, 1)
+    addConvElement(encoder, 1, 64, 3, 2, 1)
+    addConvElement(encoder, 64, 128, 3, 1, 1)
     
-    encoder:add(nn.ReLU(true))
+    addConvElement(encoder, 128, 128, 3, 2, 1)
+    addConvElement(encoder, 128, 256, 3, 1, 1)
+    
+    addConvElement(encoder, 256, 256, 3, 2, 1)
+    addConvElement(encoder, 256, 256, 3, 1, 1)
+    
+    --addResidualBlock(encoder, 256, 256, 3, 1, 1)
 
     return encoder
+end
+
+local function createMidLevel(opt)
+    local encoder = nn.Sequential()
+
+    addResidualBlock(encoder, 256, 256, 3, 1, 1)
+
+    return encoder
+end
+
+local function createGlobalLevel(opt)
+    local globalLevel = nn.Sequential()
+
+    addConvElement(globalLevel, 256, 256, 3, 2, 1)
+    --addResidualBlock(globalLevel, 256, 256, 3, 1, 1)
+    
+    addConvElement(globalLevel, 256, 256, 3, 2, 1)
+    addResidualBlock(globalLevel, 256, 256, 3, 1, 1)
+
+    globalLevel:add(nn.Reshape(12544, true))
+    addLinearElement(globalLevel, 12544, 1024)
+    addLinearElement(globalLevel, 1024, 512)
+    
+    return globalLevel
+end
+
+local function createGlobalToFusion(opt)
+    local globalToFusion = nn.Sequential()
+
+    addLinearElement(globalToFusion, 512, 256)
+    globalToFusion:add(nn.Replicate(28, 3))
+    globalToFusion:add(nn.Replicate(28, 4))
+    
+    return globalToFusion
 end
 
 local function createDecoder(opt)
     local decoder = nn.Sequential()
 
+    addConvElement(decoder, 512, 256, 3, 1, 1)
+    addConvElement(decoder, 256, 128, 3, 1, 1)
     addResidualBlock(decoder, 128, 128, 3, 1, 1)
-    --addResidualBlock(decoder, 128, 128, 3, 1, 1)
-    --addResidualBlock(decoder, 128, 128, 3, 1, 1)
 
     addUpConvElement(decoder, 128, 64, 3, 2, 1, 1)
+    addConvElement(decoder, 64, 64, 3, 1, 1)
+    
     addUpConvElement(decoder, 64, 32, 3, 2, 1, 1)
-
-    decoder:add(nn.SpatialConvolution(32, 3, 3, 3, 1, 1, 1, 1))
+    
+    addUpConvElement(decoder, 32, 16, 3, 2, 1, 1)
+    decoder:add(nn.SpatialConvolution(16, 3, 3, 3, 1, 1, 1, 1))
 
     if opt.TVWeight > 0 then
         print('adding TV loss')
@@ -141,20 +182,10 @@ end
 
 local function createClassifier(opt)
     local classificationNet = nn.Sequential()
-    classificationNet:add(nn.SpatialConvolution(128, 64, 3, 3, 2, 2, 1, 1))
-    classificationNet:add(nn.SpatialBatchNormalization(64, 1e-3))
+    classificationNet:add(nn.Linear(512, 256))
     classificationNet:add(nn.ReLU(true))
-    classificationNet:add(nn.SpatialConvolution(64, 16, 3, 3, 2, 2, 1, 1))
-    classificationNet:add(nn.SpatialBatchNormalization(16, 1e-3))
+    classificationNet:add(nn.Linear(256, 205))
     classificationNet:add(nn.ReLU(true))
-    classificationNet:add(nn.Reshape(3136, true))
-    classificationNet:add(nn.Linear(3136, 1024))
-    classificationNet:add(nn.BatchNormalization(1024, 1e-3))
-    classificationNet:add(nn.ReLU(true))
-    classificationNet:add(nn.Linear(1024, 512))
-    classificationNet:add(nn.BatchNormalization(512, 1e-3))
-    classificationNet:add(nn.ReLU(true))
-    classificationNet:add(nn.Linear(512, 205))
     return classificationNet
 end
 
@@ -164,7 +195,15 @@ local function createPredictionNet(opt, subnets)
 
     -- Intermediates
     local encoderOutput = subnets.encoder(grayscaleImage):annotate({name = 'encoderOutput'})
-    local decoderOutput = subnets.decoder(encoderOutput):annotate({name = 'decoderOutput'})
+    
+    local midLevelOutput = subnets.midLevel(encoderOutput):annotate({name = 'globalFeaturesOutput'})
+    
+    local globalLevelOutput = subnets.globalLevel(encoderOutput):annotate({name = 'globalFeaturesOutput'})
+    local globalToFusionOutput = subnets.globalToFusion(globalLevelOutput):annotate({name = 'globalToFusionOutput'})
+    
+    local fusionOutput = nn.JoinTable(1, 3)({midLevelOutput, globalToFusionOutput}):annotate({name = 'fusionOutput'})
+    
+    local decoderOutput = subnets.decoder(fusionOutput):annotate({name = 'decoderOutput'})
 
     local predictionNet = nn.gModule({grayscaleImage}, {decoderOutput})
     cudnn.convert(predictionNet, cudnn)
@@ -181,12 +220,19 @@ local function createTrainingNet(opt, subnets)
 
     -- Intermediates
     local encoderOutput = subnets.encoder(grayscaleImage):annotate({name = 'encoderOutput'})
-    local decoderOutput = subnets.decoder(encoderOutput):annotate({name = 'decoderOutput'})
+    local midLevelOutput = subnets.midLevel(encoderOutput):annotate({name = 'globalFeaturesOutput'})
+    
+    local globalLevelOutput = subnets.globalLevel(encoderOutput):annotate({name = 'globalFeaturesOutput'})
+    local classProbabilitiesPreLog = subnets.classifier(globalLevelOutput):annotate({name = 'classProbabilitiesPreLog'})
+    local globalToFusionOutput = subnets.globalToFusion(globalLevelOutput):annotate({name = 'globalToFusionOutput'})
+    
+    local fusionOutput = nn.JoinTable(1, 3)({midLevelOutput, globalToFusionOutput}):annotate({name = 'fusionOutput'})
+    
+    local decoderOutput = subnets.decoder(fusionOutput):annotate({name = 'decoderOutput'})
 
     -- Losses
     
     print('adding class loss')
-    local classProbabilitiesPreLog = subnets.classifier(encoderOutput):annotate({name = 'classProbabilitiesPreLog'})
     local classProbabilities = cudnn.LogSoftMax()(classProbabilitiesPreLog):annotate({name = 'classProbabilities'})
     local classLoss = nn.ClassNLLCriterion()({classProbabilities, targetCategories}):annotate{name = 'classLoss'}
     --local classLoss = nn.CrossEntropyCriterion()({classProbabilitiesPreLog, targetCategories}):annotate({name = 'classLoss'})
@@ -197,16 +243,6 @@ local function createTrainingNet(opt, subnets)
     print('adding content loss')
     local perceptualContent = subnets.vggNet(decoderOutput):annotate({name = 'perceptualContent'})
     local contentLoss = nn.MSECriterion()({perceptualContent, targetContent}):annotate({name = 'contentLoss'})
-
-    --[[local jointLoss = nn.ParallelCriterion()
-    jointLoss:add(classLoss, 100.0)
-    jointLoss:add(pixelLoss, 10.0)
-    jointLoss:add(contentLoss, 1.0)
-    jointLoss = nn.ModuleFromCriterion(jointLoss)()
-    local trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {jointLoss})
-    ]]
-
-    --local trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {classLoss, pixelLoss, contentLoss})
     
     local classLosMul = nn.MulConstant(opt.classWeight, true)(classLoss)
     local pixelLossMul = nn.MulConstant(opt.pixelWeight, true)(pixelLoss)
@@ -231,8 +267,11 @@ local function createModel(opt)
     -- Create individual sub-networks
     local subnets = {
         encoder = createEncoder(opt),
-        decoder = createDecoder(opt),
+        midLevel = createMidLevel(opt),
+        globalLevel = createGlobalLevel(opt),
         classifier = createClassifier(opt),
+        globalToFusion = createGlobalToFusion(opt),
+        decoder = createDecoder(opt),
         vggNet = createVGG(opt)
     }
     r.encoder = subnets.encoder
