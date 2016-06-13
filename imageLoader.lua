@@ -69,7 +69,7 @@ function M.sampleBatch(imageLoader)
 
     -- pick an index of the datapoint to load next
     local grayscaleInputs = torch.FloatTensor(opt.batchSize, 1, opt.cropSize, opt.cropSize)
-    local colorTargets = torch.FloatTensor(opt.batchSize, 3, opt.cropSize, opt.cropSize)
+    local colorTargets = torch.FloatTensor(opt.batchSize, 3, opt.halfCropSize, opt.halfCropSize)
     local classLabels = torch.IntTensor(opt.batchSize)
     
     for b = 1, opt.batchSize do
@@ -82,13 +82,16 @@ function M.sampleBatch(imageLoader)
                 local sourceImg = loadAndCropImage(imageFilename, opt)
 
                 -- Grayscale image
-                local imgGray = torch.FloatTensor(1, opt.cropSize, opt.cropSize):zero()
+                local imgGray = image.rgb2y(sourceImg)
+                --[[local imgGray = torch.FloatTensor(1, opt.cropSize, opt.cropSize):zero()
                 imgGray:add(0.299, sourceImg:select(1, 1))
                 imgGray:add(0.587, sourceImg:select(1, 2))
-                imgGray:add(0.114, sourceImg:select(1, 3))
+                imgGray:add(0.114, sourceImg:select(1, 3))]]
                 imgGray:add(-0.5)
                 
-                local imgColor = torchUtil.caffePreprocess(sourceImg:clone())
+                local downscaleImg = image.scale(sourceImg, opt.halfCropSize, opt.halfCropSize)
+                
+                local imgColor = torchUtil.caffePreprocess(downscaleImg:clone())
                 
                 return imgGray, imgColor
             end,

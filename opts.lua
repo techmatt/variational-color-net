@@ -11,8 +11,8 @@ function M.parse(arg)
     ------------ Network loss options ---------------
     cmd:option('-outDir', 'out/', 'TODO')
     cmd:option('-imageListBase', 'data/places', 'TODO')
-    cmd:option('-batchSize', 4, 'mini-batch size (1 = pure stochastic)')
-    cmd:option('-superBatches', 2, 'TODO')
+    cmd:option('-batchSize', 30, 'mini-batch size (1 = pure stochastic)')
+    cmd:option('-superBatches', 1, 'TODO')
     cmd:option('-imageSize', 256, 'Smallest side of the resized image')
     cmd:option('-cropSize', 224, 'Height and Width of image crop to be used as input layer')
     cmd:option('-sceneCategoryCount', 203, 'TODO')
@@ -36,6 +36,9 @@ function M.parse(arg)
     cmd:option('-nDonkeys',        8, 'number of donkeys to initialize (data loading threads)')
     
     local opt = cmd:parse(arg or {})
+    
+    opt.halfCropSize = opt.cropSize / 2
+    
     return opt
 end
 

@@ -107,7 +107,7 @@ local function createGlobalLevel(opt)
     --addResidualBlock(globalLevel, 256, 256, 3, 1, 1)
     
     addConvElement(globalLevel, 256, 256, 3, 2, 1)
-    addResidualBlock(globalLevel, 256, 256, 3, 1, 1)
+    --addResidualBlock(globalLevel, 256, 256, 3, 1, 1)
 
     globalLevel:add(nn.Reshape(12544, true))
     addLinearElement(globalLevel, 12544, 1024)
@@ -138,8 +138,7 @@ local function createDecoder(opt)
     
     addUpConvElement(decoder, 64, 32, 3, 2, 1, 1)
     
-    addUpConvElement(decoder, 32, 16, 3, 2, 1, 1)
-    decoder:add(nn.SpatialConvolution(16, 3, 3, 3, 1, 1, 1, 1))
+    decoder:add(nn.SpatialConvolution(32, 3, 3, 3, 1, 1, 1, 1))
 
     if opt.TVWeight > 0 then
         print('adding TV loss')
@@ -196,9 +195,9 @@ local function createPredictionNet(opt, subnets)
     -- Intermediates
     local encoderOutput = subnets.encoder(grayscaleImage):annotate({name = 'encoderOutput'})
     
-    local midLevelOutput = subnets.midLevel(encoderOutput):annotate({name = 'globalFeaturesOutput'})
+    local midLevelOutput = subnets.midLevel(encoderOutput):annotate({name = 'midLevelOutput'})
     
-    local globalLevelOutput = subnets.globalLevel(encoderOutput):annotate({name = 'globalFeaturesOutput'})
+    local globalLevelOutput = subnets.globalLevel(encoderOutput):annotate({name = 'globalLevelOutput'})
     local globalToFusionOutput = subnets.globalToFusion(globalLevelOutput):annotate({name = 'globalToFusionOutput'})
     
     local fusionOutput = nn.JoinTable(1, 3)({midLevelOutput, globalToFusionOutput}):annotate({name = 'fusionOutput'})
@@ -220,9 +219,9 @@ local function createTrainingNet(opt, subnets)
 
     -- Intermediates
     local encoderOutput = subnets.encoder(grayscaleImage):annotate({name = 'encoderOutput'})
-    local midLevelOutput = subnets.midLevel(encoderOutput):annotate({name = 'globalFeaturesOutput'})
+    local midLevelOutput = subnets.midLevel(encoderOutput):annotate({name = 'midLevelOutput'})
     
-    local globalLevelOutput = subnets.globalLevel(encoderOutput):annotate({name = 'globalFeaturesOutput'})
+    local globalLevelOutput = subnets.globalLevel(encoderOutput):annotate({name = 'globalLevelOutput'})
     local classProbabilitiesPreLog = subnets.classifier(globalLevelOutput):annotate({name = 'classProbabilitiesPreLog'})
     local globalToFusionOutput = subnets.globalToFusion(globalLevelOutput):annotate({name = 'globalToFusionOutput'})
     
