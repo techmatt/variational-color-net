@@ -197,7 +197,7 @@ local function train(model, imgLoader, opt, epoch)
 
     -- set the dropouts to training mode
     model.trainingNet:training()
-
+    
     local tm = torch.Timer()
     
     epochStats.total = 0

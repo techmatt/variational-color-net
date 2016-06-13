@@ -2,25 +2,26 @@
 require('nnModules')
 
 local useResidualBlock = true
+local useBatchNorm = true
 
 local function addConvElement(network,iChannels,oChannels,size,stride,padding)
-    network:add(nn.SpatialConvolution(iChannels,oChannels,size,size,stride,stride,padding,padding))
-    network:add(cudnn.SpatialBatchNormalization(oChannels,1e-3))
-    network:add(nn.ReLU(true))
+    network:add(cudnn.SpatialConvolution(iChannels,oChannels,size,size,stride,stride,padding,padding))
+    if useBatchNorm then network:add(cudnn.SpatialBatchNormalization(oChannels,1e-3)) end
+    network:add(cudnn.ReLU(true))
 end
 
 local function addLinearElement(network,iChannels,oChannels)
     network:add(nn.Linear(iChannels, oChannels))
-    network:add(nn.BatchNormalization(oChannels, 1e-3))
-    network:add(nn.ReLU(true))
+    if useBatchNorm then network:add(cudnn.BatchNormalization(oChannels, 1e-3)) end
+    network:add(cudnn.ReLU(true))
 end
 
 local function addUpConvElement(network,iChannels,oChannels,size,stride,padding,extra)
-    network:add(nn.SpatialFullConvolution(iChannels,oChannels,size,size,stride,stride,padding,padding,extra,extra))
+    network:add(cudnn.SpatialFullConvolution(iChannels,oChannels,size,size,stride,stride,padding,padding,extra,extra))
     --network:add(nn.SpatialUpSamplingNearest(stride))
     --network:add(nn.SpatialConvolution(iChannels,oChannels,size,size,1,1,padding,padding))
-    network:add(cudnn.SpatialBatchNormalization(oChannels,1e-3))
-    network:add(nn.ReLU(true))
+    if useBatchNorm then network:add(cudnn.SpatialBatchNormalization(oChannels,1e-3)) end
+    network:add(cudnn.ReLU(true))
 end
 
 local function addResidualBlock(network,iChannels,oChannels,size,stride,padding)
@@ -29,11 +30,11 @@ local function addResidualBlock(network,iChannels,oChannels,size,stride,padding)
 
     local s = nn.Sequential()
         
-    s:add(nn.SpatialConvolution(iChannels,oChannels,size,size,stride,stride,padding,padding))
-    s:add(cudnn.SpatialBatchNormalization(oChannels,1e-3))
-    s:add(nn.ReLU(true))
-    s:add(nn.SpatialConvolution(iChannels,oChannels,size,size,stride,stride,padding,padding))
-    s:add(cudnn.SpatialBatchNormalization(oChannels,1e-3))
+    s:add(cudnn.SpatialConvolution(iChannels,oChannels,size,size,stride,stride,padding,padding))
+    if useBatchNorm then s:add(cudnn.SpatialBatchNormalization(oChannels,1e-3)) end
+    s:add(cudnn.ReLU(true))
+    s:add(cudnn.SpatialConvolution(iChannels,oChannels,size,size,stride,stride,padding,padding))
+    if useBatchNorm then s:add(cudnn.SpatialBatchNormalization(oChannels,1e-3)) end
     
     if useResidualBlock then
         --local shortcut = nn.narrow(3, )
@@ -131,23 +132,38 @@ local function createDecoder(opt)
 
     addConvElement(decoder, 512, 256, 3, 1, 1)
     addConvElement(decoder, 256, 128, 3, 1, 1)
-    addResidualBlock(decoder, 128, 128, 3, 1, 1)
+    --addResidualBlock(decoder, 128, 128, 3, 1, 1)
 
     addUpConvElement(decoder, 128, 64, 3, 2, 1, 1)
     addConvElement(decoder, 64, 64, 3, 1, 1)
     
     addUpConvElement(decoder, 64, 32, 3, 2, 1, 1)
     
-    decoder:add(nn.SpatialConvolution(32, 3, 3, 3, 1, 1, 1, 1))
+    return decoder
+end
 
+local function createDecoderToRGB(opt)
+    local decoderToRGB = nn.Sequential()
+    decoderToRGB:add(nn.SpatialConvolution(32, 3, 3, 3, 1, 1, 1, 1))
     if opt.TVWeight > 0 then
-        print('adding TV loss')
+        print('adding RGB TV loss')
         local tvModule = nn.TVLoss(opt.TVWeight, opt.batchSize):float()
         tvModule:cuda()
-        decoder:add(tvModule)
+        decoderToRGB:add(tvModule)
     end
+    return decoderToRGB
+end
 
-    return decoder
+local function createDecoderToLAB(opt)
+    local decoderToLAB = nn.Sequential()
+    decoderToLAB:add(nn.SpatialConvolution(32, 3, 3, 3, 1, 1, 1, 1))
+    if opt.TVWeight > 0 then
+        print('adding RGB TV loss')
+        local tvModule = nn.TVLoss(opt.TVWeight, opt.batchSize):float()
+        tvModule:cuda()
+        decoderToLAB:add(tvModule)
+    end
+    return decoderToLAB
 end
 
 local function createParamPredictor(opt)
@@ -203,8 +219,11 @@ local function createPredictionNet(opt, subnets)
     local fusionOutput = nn.JoinTable(1, 3)({midLevelOutput, globalToFusionOutput}):annotate({name = 'fusionOutput'})
     
     local decoderOutput = subnets.decoder(fusionOutput):annotate({name = 'decoderOutput'})
+    
+    local RGBOutput = subnets.decoderToRGB(decoderOutput):annotate({name = 'RGBOutput'})
+    --local LABOutput = subnets.decoderToLAB(decoderOutput):annotate({name = 'LABOutput'})
 
-    local predictionNet = nn.gModule({grayscaleImage}, {decoderOutput})
+    local predictionNet = nn.gModule({grayscaleImage}, {RGBOutput})
     cudnn.convert(predictionNet, cudnn)
     predictionNet = predictionNet:cuda()
     return predictionNet
@@ -229,6 +248,9 @@ local function createTrainingNet(opt, subnets)
     
     local decoderOutput = subnets.decoder(fusionOutput):annotate({name = 'decoderOutput'})
 
+    local RGBOutput = subnets.decoderToRGB(decoderOutput):annotate({name = 'RGBOutput'})
+    --local LABOutput = subnets.decoderToLAB(decoderOutput):annotate({name = 'LABOutput'})
+    
     -- Losses
     
     print('adding class loss')
@@ -236,19 +258,20 @@ local function createTrainingNet(opt, subnets)
     local classLoss = nn.ClassNLLCriterion()({classProbabilities, targetCategories}):annotate{name = 'classLoss'}
     --local classLoss = nn.CrossEntropyCriterion()({classProbabilitiesPreLog, targetCategories}):annotate({name = 'classLoss'})
     
-    print('adding pixel loss')
-    local pixelLoss = nn.MSECriterion()({decoderOutput, colorImage}):annotate({name = 'pixelLoss'})
+    print('adding pixel RGB loss')
+    local pixelRGBLoss = nn.MSECriterion()({RGBOutput, colorImage}):annotate({name = 'pixelLoss'})
 
     print('adding content loss')
-    local perceptualContent = subnets.vggNet(decoderOutput):annotate({name = 'perceptualContent'})
+    local perceptualContent = subnets.vggNet(RGBOutput):annotate({name = 'perceptualContent'})
     local contentLoss = nn.MSECriterion()({perceptualContent, targetContent}):annotate({name = 'contentLoss'})
     
     local classLosMul = nn.MulConstant(opt.classWeight, true)(classLoss)
-    local pixelLossMul = nn.MulConstant(opt.pixelWeight, true)(pixelLoss)
+    local pixelRGBLossMul = nn.MulConstant(opt.pixelRGBWeight, true)(pixelRGBLoss)
+    --local pixelLABLossMul = nn.MulConstant(opt.pixelLABWeight, true)(pixelLABLoss)
     local contentLossMul = nn.MulConstant(opt.contentWeight, true)(contentLoss)
 
     -- Full training network including all loss functions
-    local trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {classLosMul, pixelLossMul, contentLossMul})
+    local trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {classLosMul, pixelRGBLossMul, contentLossMul})
 
     cudnn.convert(trainingNet, cudnn)
     trainingNet = trainingNet:cuda()
@@ -271,6 +294,8 @@ local function createModel(opt)
         classifier = createClassifier(opt),
         globalToFusion = createGlobalToFusion(opt),
         decoder = createDecoder(opt),
+        decoderToRGB = createDecoderToRGB(opt),
+        decoderToLAB = createDecoderToLAB(opt),
         vggNet = createVGG(opt)
     }
     r.encoder = subnets.encoder
