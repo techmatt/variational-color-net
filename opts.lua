@@ -11,7 +11,7 @@ function M.parse(arg)
     ------------ Network loss options ---------------
     cmd:option('-outDir', 'out/', 'TODO')
     cmd:option('-imageListBase', 'data/places', 'TODO')
-    cmd:option('-batchSize', 32, 'mini-batch size (1 = pure stochastic)')
+    cmd:option('-batchSize', 16, 'mini-batch size (1 = pure stochastic)')
     cmd:option('-superBatches', 1, 'TODO')
     cmd:option('-imageSize', 256, 'Smallest side of the resized image')
     cmd:option('-cropSize', 224, 'Height and Width of image crop to be used as input layer')
@@ -22,6 +22,7 @@ function M.parse(arg)
     cmd:option('-pixelLABWeight', 0.01, 'TODO')
     cmd:option('-classWeight', 1.0, 'TODO')
     cmd:option('-TVWeight', 1e-5, 'TODO')
+    cmd:option('-KLDWeight', 1.0, 'TODO')
     
     cmd:option('-pretrainedTransformModel', 'out/models/transform14.ty', 'TODO')
     

@@ -158,7 +158,7 @@ local function createDecoderToLAB(opt)
     local decoderToLAB = nn.Sequential()
     decoderToLAB:add(nn.SpatialConvolution(32, 3, 3, 3, 1, 1, 1, 1))
     if opt.TVWeight > 0 then
-        print('adding RGB TV loss')
+        print('adding LAB TV loss')
         local tvModule = nn.TVLoss(opt.TVWeight, opt.batchSize):float()
         tvModule:cuda()
         decoderToLAB:add(tvModule)
@@ -167,32 +167,32 @@ local function createDecoderToLAB(opt)
 end
 
 local function createParamPredictor(opt)
-    -- Input is encoder output
-    local encoderOutput = nn.Identity()()
-
     -- Turn encoder output into two equal sized blocks
     -- First is mean, second is log(stddev^2)
     -- TODO: Slap some more residual blocks on each of these, to make them
     --    less correlated?
-    local mu = nn.SpatialConvolution(128, 128, 3, 3, 1, 1, 1, 1)(encoderOutput)
-    local logSigmaSq = nn.SpatialConvolution(128, 128, 3, 3, 1, 1, 1, 1)(encoderOutput)
-
-    return nn.gModule({encoderOutput}, {mu, logSigmaSq})
+    local pp = nn.ConcatTable()
+    pp:add(nn.SpatialConvolution(512, 512, 3, 3, 1, 1, 1, 1))
+    pp:add(nn.SpatialConvolution(512, 512, 3, 3, 1, 1, 1, 1))
+    return pp
 end
 
 local function createReparameterizer(opt)
-    -- Input is {mu, logSigmaSq, randomness}
-    local mu = nn.Identity()()
-    local logSigmaSq = nn.Identity()()
+    -- Input is {{mu, logSigmaSq}, randomness}
+    local params = nn.Identity()()
     local randomness = nn.Identity()()
 
+    -- Extract mu and logSigmaSq from the input table
+    local mu = nn.SelectTable(1)(params)
+    local logSigmaSq = nn.SelectTable(2)(params)
+
     -- Compute sigma (log(sigma^2) = 2log(sigma))
-    local sigma = nn.Exp()(nn.MulConstant(0.5)(logSigmaSq))
+    local sigma = nn.Exp()(nn.MulConstant(0.5, true)(logSigmaSq))
 
     -- Shift and scale the randomness
     local output = nn.CAddTable()({mu, nn.CMulTable()({sigma, randomness})})
 
-    return nn.gModule({mu, logSigmaSq, randomness}, {output})
+    return nn.gModule({params, randomness}, {output})
 end
 
 local function createClassifier(opt)
@@ -207,23 +207,21 @@ end
 local function createPredictionNet(opt, subnets)
     -- Input nodes
     local grayscaleImage = nn.Identity()():annotate({name = 'grayscaleImage'})
+    local randomness = nn.Identity()():annotate({name = 'randomness'})
 
     -- Intermediates
     local encoderOutput = subnets.encoder(grayscaleImage):annotate({name = 'encoderOutput'})
-    
     local midLevelOutput = subnets.midLevel(encoderOutput):annotate({name = 'midLevelOutput'})
-    
     local globalLevelOutput = subnets.globalLevel(encoderOutput):annotate({name = 'globalLevelOutput'})
     local globalToFusionOutput = subnets.globalToFusion(globalLevelOutput):annotate({name = 'globalToFusionOutput'})
-    
     local fusionOutput = nn.JoinTable(1, 3)({midLevelOutput, globalToFusionOutput}):annotate({name = 'fusionOutput'})
-    
-    local decoderOutput = subnets.decoder(fusionOutput):annotate({name = 'decoderOutput'})
-    
+    local params = subnets.paramPredictor(fusionOutput):annotate({name = 'params'})
+    local sample = subnets.reparameterizer({params, randomness}):annotate({name = 'sample'})
+    local decoderOutput = subnets.decoder(sample):annotate({name = 'decoderOutput'})
     local RGBOutput = subnets.decoderToRGB(decoderOutput):annotate({name = 'RGBOutput'})
     --local LABOutput = subnets.decoderToLAB(decoderOutput):annotate({name = 'LABOutput'})
 
-    local predictionNet = nn.gModule({grayscaleImage}, {RGBOutput})
+    local predictionNet = nn.gModule({grayscaleImage, randomness}, {RGBOutput})
     cudnn.convert(predictionNet, cudnn)
     predictionNet = predictionNet:cuda()
     return predictionNet
@@ -232,22 +230,21 @@ end
 local function createTrainingNet(opt, subnets)
     -- Input nodes
     local grayscaleImage = nn.Identity()():annotate({name = 'grayscaleImage'})
+    local randomness = nn.Identity()():annotate({name = 'randomness'})
     local colorImage = nn.Identity()():annotate({name = 'colorImage'})
     local targetContent = nn.Identity()():annotate({name = 'targetContent'})
-    local targetCategories = nn.Identity()():annotate({name = 'targetCategories'})
+    local targetCategories = nn.Identity()():annotate({name = 'targetCategories'}) 
 
     -- Intermediates
     local encoderOutput = subnets.encoder(grayscaleImage):annotate({name = 'encoderOutput'})
     local midLevelOutput = subnets.midLevel(encoderOutput):annotate({name = 'midLevelOutput'})
-    
     local globalLevelOutput = subnets.globalLevel(encoderOutput):annotate({name = 'globalLevelOutput'})
     local classProbabilitiesPreLog = subnets.classifier(globalLevelOutput):annotate({name = 'classProbabilitiesPreLog'})
     local globalToFusionOutput = subnets.globalToFusion(globalLevelOutput):annotate({name = 'globalToFusionOutput'})
-    
     local fusionOutput = nn.JoinTable(1, 3)({midLevelOutput, globalToFusionOutput}):annotate({name = 'fusionOutput'})
-    
-    local decoderOutput = subnets.decoder(fusionOutput):annotate({name = 'decoderOutput'})
-
+    local params = subnets.paramPredictor(fusionOutput):annotate({name = 'params'})
+    local sample = subnets.reparameterizer({params, randomness}):annotate({name = 'sample'})
+    local decoderOutput = subnets.decoder(sample):annotate({name = 'decoderOutput'})
     local RGBOutput = subnets.decoderToRGB(decoderOutput):annotate({name = 'RGBOutput'})
     --local LABOutput = subnets.decoderToLAB(decoderOutput):annotate({name = 'LABOutput'})
     
@@ -264,14 +261,19 @@ local function createTrainingNet(opt, subnets)
     print('adding content loss')
     local perceptualContent = subnets.vggNet(RGBOutput):annotate({name = 'perceptualContent'})
     local contentLoss = nn.MSECriterion()({perceptualContent, targetContent}):annotate({name = 'contentLoss'})
+
+    print('adding KLD loss')
+    local kldLoss = nn.KLDCriterion()({params}):annotate({name = 'kldLoss'})
     
     local classLosMul = nn.MulConstant(opt.classWeight, true)(classLoss)
     local pixelRGBLossMul = nn.MulConstant(opt.pixelRGBWeight, true)(pixelRGBLoss)
     --local pixelLABLossMul = nn.MulConstant(opt.pixelLABWeight, true)(pixelLABLoss)
     local contentLossMul = nn.MulConstant(opt.contentWeight, true)(contentLoss)
+    local kldLossMul = nn.MulConstant(opt.KLDWeight, true)(kldLoss)
 
     -- Full training network including all loss functions
-    local trainingNet = nn.gModule({grayscaleImage, colorImage, targetContent, targetCategories}, {classLosMul, pixelRGBLossMul, contentLossMul})
+    local trainingNet = nn.gModule({grayscaleImage, randomness, colorImage, targetContent, targetCategories},
+        {classLosMul, pixelRGBLossMul, contentLossMul, kldLossMul})
 
     cudnn.convert(trainingNet, cudnn)
     trainingNet = trainingNet:cuda()
@@ -293,6 +295,8 @@ local function createModel(opt)
         globalLevel = createGlobalLevel(opt),
         classifier = createClassifier(opt),
         globalToFusion = createGlobalToFusion(opt),
+        paramPredictor = createParamPredictor(opt),
+        reparameterizer = createReparameterizer(opt),
         decoder = createDecoder(opt),
         decoderToRGB = createDecoderToRGB(opt),
         decoderToLAB = createDecoderToLAB(opt),

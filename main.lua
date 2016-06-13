@@ -3,11 +3,11 @@ paths.dofile('globals.lua')
 
 --note: using require won't emit parsing errors while paths.dofile will.
 
-local opts = require('opts.lua')
-local util = require('util.lua')
-local models = require('models.lua')
-local imageLoader = require('imageLoader.lua')
-local train = paths.dofile('train.lua')
+local opts = require('opts')
+local util = require('util')
+local models = require('models')
+local imageLoader = require('imageLoader')
+local train = require('train')
 
 cudnn.benchmark = true
 torch.setdefaulttensortype('torch.FloatTensor')

@@ -42,12 +42,15 @@ end
 
 -- KL Divergence loss for a Gaussian (input[1] = mean, input[2] = stddev) against
 --    another, unit-variance Gaussian
+-- Adapted from https://github.com/willwhitney/dc-ign
+-- This is actually a module, not a criterion, b/c that plays better with nngraph
 
-local KLDCriterion, parent = torch.class('nn.KLDCriterion', 'nn.Criterion')
+local KLDCriterion, parent = torch.class('nn.KLDCriterion', 'nn.Module')
 
 function KLDCriterion:__init()
    parent.__init(self)
-   self.sizeAverage = true
+   self.output = torch.Tensor(1)
+   self.sizeAverage = false
 end
 
 function KLDCriterion:updateOutput(input)
@@ -79,12 +82,12 @@ function KLDCriterion:updateOutput(input)
       self.term3:div(input[1]:nElement())
    end
 
-    self.output = 0.5 * self.term3:sum()
+    self.output[1] = 0.5 * self.term3:sum()
 
     return self.output
 end
 
-function KLDCriterion:updateGradInput(input)
+function KLDCriterion:updateGradInput(input, gradOutput)
     self.gradInput = {}
 
     self.gradInput[1] = self.gradInput[1] or input[1].new()
@@ -102,6 +105,9 @@ function KLDCriterion:updateGradInput(input)
     if self.sizeAverage then
         self.gradInput:div(input[1]:nElement())
     end
+
+    self.gradInput[1]:mul(gradOutput[1])
+    self.gradInput[2]:mul(gradOutput[1])
 
     return self.gradInput
 end
