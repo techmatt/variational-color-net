@@ -3,7 +3,7 @@ local imageLoader = require('imageLoader')
 local torchUtil = require('torchUtil')
 
 --local debugBatchIndices = {[1]=true, [100]=true, [200]=true}
-local debugBatchIndices = {[200]=true}
+local debugBatchIndices = {[500]=true}
 
 -- Setup a reused optimization state (for adam/sgd).
 local optimState = {

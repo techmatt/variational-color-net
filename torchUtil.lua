@@ -23,7 +23,7 @@ end
 
 local function getQuartiles(tensor, count)
     if not tensor or not tensor.size then
-        return '[nil]'
+        return '[nil]' .. ','
     elseif #tensor:size() >= 1 then
         local e = 1
         for d = 1, #tensor:size() do
@@ -72,6 +72,10 @@ local function dumpNet(network, inputs, dir)
 end
 
 local function dumpGraph(graph, filename)
+    local function trainingDesc(s)
+        if s then return 'training'
+        else return 'evaluate' end
+    end
     print('dumping graph')
     --lfs.mkdir(dir)
     local out = assert(io.open(filename, "w"))
@@ -79,8 +83,11 @@ local function dumpGraph(graph, filename)
     for i, module in ipairs(graph:listModules()) do
         local moduleType = torch.type(module)
         print('module ' .. i .. ': ' .. moduleType)
-        out:write(i .. splitter .. moduleType .. splitter .. getSize(module.output) .. splitter)
-        out:write(getQuartiles(module.output, 10))
+        --print(module.mode)
+        out:write(i .. splitter .. moduleType .. splitter)
+        out:write(trainingDesc(module.train) .. splitter)
+        out:write( getSize(module.output) .. splitter .. getQuartiles(module.output, 10))
+        out:write( getSize(module.gradInput) .. splitter .. getQuartiles(module.gradInput, 10))
         out:write("\n")
         for a,b in pairs(module) do
             --print(a)
