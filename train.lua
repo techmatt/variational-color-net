@@ -3,7 +3,8 @@ local imageLoader = require('imageLoader')
 local torchUtil = require('torchUtil')
 
 --local debugBatchIndices = {[1]=true, [100]=true, [200]=true}
-local debugBatchIndices = {[200]=true,[1000]=true,[5000]=true,[10000]=true}
+-- local debugBatchIndices = {[5]=true}
+local debugBatchIndices = {}
 
 -- Setup a reused optimization state (for adam/sgd).
 local optimState = {
@@ -24,14 +25,14 @@ local optimState = {
 local function paramsForEpoch(epoch)
     local regimes = {
         -- start, end,    LR,   WD,
-        {  1,     1,   1e-2,   0 },
+        {  1,     1,   1e-3,   0 },
         {  2,     2,   1e-3,   0 },
-        {  3,     3,   1e-3,   0 },
-        {  4,     10,   1e-3,   0 },
-        { 11,     20,   5e-4,   0 },
-        { 21,     30,   1e-4,   0 },
-        { 31,     40,   5e-5,   0 },
-        { 41,    1e8,   1e-5,   0 },
+        {  3,     3,   5e-4,   0 },
+        {  4,     10,   4e-5,   0 },
+        { 11,     20,   2e-5,   0 },
+        { 21,     30,   1e-5,   0 },
+        { 31,     40,   5e-6,   0 },
+        { 41,    1e8,   1e-6,   0 },
     }
 
     for _, row in ipairs(regimes) do
@@ -114,10 +115,10 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
     
     local parameters, gradParameters = model.trainingNet:getParameters()
     
-    local dataLoadingTime = dataTimer:time().real
-    timer:reset()
-    
     cutorch.synchronize()
+
+    local dataLoadingTime = 0
+    timer:reset()
 
     local classLossSum, pixelRGBLossSum, pixelABLossSum, contentLossSum, kldLossSum, totalLossSum = 0, 0, 0, 0, 0, 0
     local top1, top5 = 0, 0
@@ -125,7 +126,10 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
         model.trainingNet:zeroGradParameters()
         
         for superBatch = 1, opt.superBatches do
+            local loadTimeStart = dataTimer:time().real
             local batch = imageLoader.sampleBatch(imgLoader)
+            local loadTimeEnd = dataTimer:time().real
+            dataLoadingTime = dataLoadingTime + (loadTimeEnd - loadTimeStart)
             
             local randomnessCPU
             if opt.useRandomness then
@@ -141,26 +145,6 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             ABTargets:resize(batch.ABTargets:size()):copy(batch.ABTargets)
             classLabels:resize(batch.classLabels:size()):copy(batch.classLabels)
             randomness:resize(randomnessCPU:size()):copy(randomnessCPU)
-
-            if superBatch == 1 and totalBatchCount % 100 == 0 then
-                local inClone = RGBTargets[1]:clone()
-                inClone = torchUtil.caffeDeprocess(inClone)
-                
-                local prediction = model.predictionNet:forward({grayscaleInputs, randomness})
-                local predictionAB = prediction[1][1]:clone()
-                local predictionRGB = torchUtil.caffeDeprocess(prediction[2][1]:clone())
-                
-                image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_outRGBDebug.jpg', predictionRGB)
-                
-                --print(predictionRGB:size())
-                --print(predictionAB:size())
-                local predictionAB = predictionABToRGB(grayscaleInputs[1], predictionAB)
-                local predictionRGB = predictionCorrectedRGB(grayscaleInputs[1], predictionRGB)
-                
-                image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_in.jpg', inClone)
-                image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_outRGB.jpg', predictionRGB)
-                image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_outAB.jpg', predictionAB)
-            end
         
             local contentTargets = model.vggNet:forward(RGBTargets):clone()
             
@@ -184,10 +168,12 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             
             model.trainingNet:backward({grayscaleInputs, randomness, ABTargets, RGBTargets, contentTargets, classLabels}, outputLoss)
             
+
+            if debugBatchIndices[totalBatchCount] then
+                torchUtil.dumpGraph(model.trainingNet, opt.outDir .. 'graphDump' .. totalBatchCount .. '.csv')
+            end
+            
             if superBatch == 1 then
-                if debugBatchIndices[totalBatchCount] then
-                    torchUtil.dumpGraph(model.trainingNet, opt.outDir .. 'graphDump' .. totalBatchCount .. '.csv')
-                end
                 do
                     local _, predictions = classProbabilities:float():sort(2, true) -- descending
                     for b = 1, opt.batchSize do
@@ -205,6 +191,35 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
                     end
                     top1 = top1 * 100 / opt.batchSize
                     top5 = top5 * 100 / opt.batchSize
+                end
+            end
+
+            -- Output test samples
+            if superBatch == 1 and totalBatchCount % 100 == 0 then
+                -- Copy image #1 into the entire batch for grayscaleInputs
+                -- This allows us to output N random samples from the network, where N = batch size
+                for batchIndex = 2, opt.batchSize do
+                    grayscaleInputs[batchIndex]:copy(grayscaleInputs[1])
+                end
+
+                -- Save ground truth RGB image
+                local inClone = RGBTargets[1]:clone()
+                inClone = torchUtil.caffeDeprocess(inClone)
+                image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_groundTruth.jpg', inClone)
+                
+                -- Save predicted images
+                for testSampleIndex = 1, opt.numTestSamples do
+                    local prediction = model.predictionNet:forward({grayscaleInputs, randomness})
+                    local predictionAB = prediction[1][testSampleIndex]:clone()
+                    local predictionRGB = torchUtil.caffeDeprocess(prediction[2][testSampleIndex]:clone())
+                    
+                    image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_sample' .. testSampleIndex .. '_predictedRGBDebug.jpg', predictionRGB)
+                    
+                    local predictionAB = predictionABToRGB(grayscaleInputs[1], predictionAB)
+                    local predictionRGB = predictionCorrectedRGB(grayscaleInputs[1], predictionRGB)
+                    
+                    image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_sample' .. testSampleIndex .. '_predictedRGB.jpg', predictionRGB)
+                    image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_sample' .. testSampleIndex .. '_predictedAB.jpg', predictionAB)
                 end
             end
         end
