@@ -23,6 +23,7 @@ function M.parse(arg)
     cmd:option('-classWeight', 1.0, 'TODO')
     cmd:option('-TVWeight', 1e-5, 'TODO')
     cmd:option('-KLDWeight', 1.0, 'TODO')
+    cmd:option('-useRandomness', false, 'TODO')
     
     cmd:option('-pretrainedTransformModel', 'out/models/transform14.ty', 'TODO')
     
@@ -40,6 +41,7 @@ function M.parse(arg)
     local opt = cmd:parse(arg or {})
     
     opt.halfCropSize = opt.cropSize / 2
+    if not opt.useRandomness then opt.KLDWeight = 0.00001 end -- cannot be 0 because of how backprop works
     
     return opt
 end

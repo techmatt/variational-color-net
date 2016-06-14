@@ -47,7 +47,8 @@ local epochStats = {}
 
 -- GPU inputs (preallocate)
 local grayscaleInputs = torch.CudaTensor()
-local colorTargets = torch.CudaTensor()
+local RGBTargets = torch.CudaTensor()
+local ABTargets = torch.CudaTensor()
 local classLabels = torch.CudaTensor()
 local randomness = torch.CudaTensor()
 
@@ -71,16 +72,23 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
         
         for superBatch = 1, opt.superBatches do
             local batch = imageLoader.sampleBatch(imgLoader)
-            local randomnessCPU = torch.randn(opt.batchSize, 512, 28, 28)
+            
+            local randomnessCPU
+            if useRandomness then
+                randomnessCPU = torch.randn(opt.batchSize, 512, 28, 28)
+            else
+                randomnessCPU = torch.FloatTensor(opt.batchSize, 512, 28, 28):zero()
+            end
             
             -- transfer over to GPU
             grayscaleInputs:resize(batch.grayscaleInputs:size()):copy(batch.grayscaleInputs)
-            colorTargets:resize(batch.colorTargets:size()):copy(batch.colorTargets)
+            RGBTargets:resize(batch.RGBTargets:size()):copy(batch.RGBTargets)
+            ABTargets:resize(batch.ABTargets:size()):copy(batch.ABTargets)
             classLabels:resize(batch.classLabels:size()):copy(batch.classLabels)
             randomness:resize(randomnessCPU:size()):copy(randomnessCPU)
 
             if superBatch == 1 and totalBatchCount % 100 == 0 then
-                local inClone = colorTargets[1]:clone()
+                local inClone = RGBTargets[1]:clone()
                 inClone = torchUtil.caffeDeprocess(inClone)
                 
                 local outClone = model.predictionNet:forward({grayscaleInputs, randomness})[1]:clone()
@@ -90,9 +98,9 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
                 image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_out.jpg', outClone)
             end
         
-            local contentTargets = model.vggNet:forward(colorTargets):clone()
+            local contentTargets = model.vggNet:forward(RGBTargets):clone()
             
-            local outputLoss = model.trainingNet:forward({grayscaleInputs, randomness, colorTargets, contentTargets, classLabels})
+            local outputLoss = model.trainingNet:forward({grayscaleInputs, randomness, RGBTargets, contentTargets, classLabels})
             
             local classLoss = outputLoss[1][1]
             local pixelLoss = outputLoss[2][1]
@@ -107,7 +115,7 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             
             local classProbabilities = model.classProbabilities.data.module.output
             
-            model.trainingNet:backward({grayscaleInputs, randomness, colorTargets, contentTargets, classLabels}, outputLoss)
+            model.trainingNet:backward({grayscaleInputs, randomness, RGBTargets, contentTargets, classLabels}, outputLoss)
             
             if superBatch == 1 then
                 do

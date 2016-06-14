@@ -69,7 +69,8 @@ function M.sampleBatch(imageLoader)
 
     -- pick an index of the datapoint to load next
     local grayscaleInputs = torch.FloatTensor(opt.batchSize, 1, opt.cropSize, opt.cropSize)
-    local colorTargets = torch.FloatTensor(opt.batchSize, 3, opt.halfCropSize, opt.halfCropSize)
+    local RGBTargets = torch.FloatTensor(opt.batchSize, 3, opt.halfCropSize, opt.halfCropSize)
+    local ABTargets = torch.FloatTensor(opt.batchSize, 2, opt.halfCropSize, opt.halfCropSize)
     local classLabels = torch.IntTensor(opt.batchSize)
     
     for b = 1, opt.batchSize do
@@ -82,29 +83,33 @@ function M.sampleBatch(imageLoader)
                 local sourceImg = loadAndCropImage(imageFilename, opt)
 
                 -- Grayscale image
-                local imgGray = image.rgb2y(sourceImg)
+                local grayscale = image.rgb2y(sourceImg)
                 --[[local imgGray = torch.FloatTensor(1, opt.cropSize, opt.cropSize):zero()
-                imgGray:add(0.299, sourceImg:select(1, 1))
-                imgGray:add(0.587, sourceImg:select(1, 2))
-                imgGray:add(0.114, sourceImg:select(1, 3))]]
-                imgGray:add(-0.5)
+                grayscale:add(0.299, sourceImg:select(1, 1))
+                grayscale:add(0.587, sourceImg:select(1, 2))
+                grayscale:add(0.114, sourceImg:select(1, 3))]]
+                grayscale:add(-0.5)
                 
                 local downscaleImg = image.scale(sourceImg, opt.halfCropSize, opt.halfCropSize)
                 
-                local imgColor = torchUtil.caffePreprocess(downscaleImg:clone())
+                local RGBColor = torchUtil.caffePreprocess(downscaleImg:clone())
+                local ABColor = image.rgb2lab(downscaleImg)
+                ABColor = ABColor[{{2,3},{},{}}]
                 
-                return imgGray, imgColor
+                return grayscale, RGBColor, ABColor
             end,
-            function(imgGray, imgColor)
-                grayscaleInputs[b] = imgGray
-                colorTargets[b] = imgColor
+            function(grayscale, RGBColor, ABColor)
+                grayscaleInputs[b] = grayscale
+                RGBTargets[b] = RGBColor
+                ABTargets[b] = ABColor
             end)
     end
     donkeys:synchronize()
     
     local batch = {}
     batch.grayscaleInputs = grayscaleInputs
-    batch.colorTargets = colorTargets
+    batch.RGBTargets = RGBTargets
+    batch.ABTargets = ABTargets
     batch.classLabels = classLabels
     return batch
 end
