@@ -44,6 +44,8 @@ end
 --    another, unit-variance Gaussian
 -- Adapted from https://github.com/willwhitney/dc-ign
 -- This is actually a module, not a criterion, b/c that plays better with nngraph
+-- We also negate the resulting value, b/c we are minimizing a loss, whereas the 
+--    the dc-ign implementation is maximizing an objective
 
 local KLDCriterion, parent = torch.class('nn.KLDCriterion', 'nn.Module')
 
@@ -82,7 +84,7 @@ function KLDCriterion:updateOutput(input)
       self.term3:div(input[1]:nElement())
    end
 
-    self.output[1] = 0.5 * self.term3:sum()
+    self.output[1] = -0.5 * self.term3:sum()
 
     return self.output
 end
