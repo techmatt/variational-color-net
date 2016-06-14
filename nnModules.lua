@@ -50,7 +50,7 @@ local KLDCriterion, parent = torch.class('nn.KLDCriterion', 'nn.Module')
 function KLDCriterion:__init()
    parent.__init(self)
    self.output = torch.Tensor(1)
-   self.sizeAverage = false
+   self.sizeAverage = true  -- average over batch
 end
 
 function KLDCriterion:updateOutput(input)
@@ -103,7 +103,8 @@ function KLDCriterion:updateGradInput(input, gradOutput)
     self.gradInput[2] = self.term:exp():mul(-1):add(1):mul(0.5)
 
     if self.sizeAverage then
-        self.gradInput:div(input[1]:nElement())
+        self.gradInput[1]:div(input[1]:nElement())
+        self.gradInput[2]:div(input[1]:nElement())
     end
 
     self.gradInput[1]:mul(gradOutput[1])

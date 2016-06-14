@@ -102,7 +102,7 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             classLossSum = classLossSum + classLoss
             pixelLossSum = pixelLossSum + pixelLoss
             contentLossSum = contentLossSum + contentLoss
-            kldLoss = kldLossSum + kldLoss
+            kldLossSum = kldLossSum + kldLoss
             totalLossSum = totalLossSum + classLoss + pixelLoss + contentLoss + kldLoss
             
             local classProbabilities = model.classProbabilities.data.module.output
