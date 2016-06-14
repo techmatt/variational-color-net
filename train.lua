@@ -79,6 +79,8 @@ local function predictionABToRGB(YImageGPU, ABImageGPU)
     YImage:add(0.5)
     ABImage:mul(100.0)
     local YRepeated = torch.repeatTensor( YImage, 3, 1, 1 )
+    YRepeated[2]:zero()
+    YRepeated[3]:zero()
     local luminance = yuv2lab(YRepeated)
 
     local emptyChannel = ABImage[{{1},{},{}}]:float()
@@ -96,6 +98,8 @@ local function predictionCorrectedRGB(YImageGPU, RGBImageGPU)
     
     YImage:add(0.5)
     local YRepeated = torch.repeatTensor( YImage, 3, 1, 1 )
+    YRepeated[2]:zero()
+    YRepeated[3]:zero()
     local luminance = yuv2lab(YRepeated)
 
     local LABImage = image.rgb2lab(RGBImage)
