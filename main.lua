@@ -27,10 +27,19 @@ local model = models.createModel(opt)
 collectgarbage()
 local imgLoader = imageLoader.makeImageLoader(opt)
 
+-- Create unique directory for outputs (based on timestamp)
+opt.outDir = string.format('%s_%u/', opt.outBaseDir, os.time())
 print('Saving everything to: ' .. opt.outDir)
 lfs.mkdir(opt.outDir)
 lfs.mkdir(opt.outDir .. 'models/')
 lfs.mkdir(opt.outDir .. 'samples/')
+-- Copy over all .lua files
+lfs.mkdir(opt.outDir .. 'src/')
+for file in lfs.dir('.') do
+	if paths.extname(file) == 'lua' then
+		os.execute(string.format('cp %s %s/src/%s', file, opt.outDir, file))
+	end
+end
 
 for i=1,opt.epochCount do
    train(model, imgLoader, opt, i)

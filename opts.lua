@@ -9,7 +9,7 @@ function M.parse(arg)
     cmd:text('Options:')
     
     ------------ Network  options ---------------
-    cmd:option('-outDir', 'out/', 'TODO')
+    cmd:option('-outBaseDir', 'out', 'TODO')
     cmd:option('-imageListBase', 'data/places', 'TODO')
     cmd:option('-batchSize', 20, 'mini-batch size (1 = pure stochastic)')
     cmd:option('-superBatches', 1, 'TODO')
