@@ -3,7 +3,8 @@ local imageLoader = require('imageLoader')
 local torchUtil = require('torchUtil')
 
 --local debugBatchIndices = {[1]=true, [100]=true, [200]=true}
-local debugBatchIndices = {[5]=true}
+-- local debugBatchIndices = {[5]=true}
+local debugBatchIndices = {}
 
 -- Setup a reused optimization state (for adam/sgd).
 local optimState = {
@@ -114,10 +115,10 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
     
     local parameters, gradParameters = model.trainingNet:getParameters()
     
-    local dataLoadingTime = dataTimer:time().real
-    timer:reset()
-    
     cutorch.synchronize()
+
+    local dataLoadingTime = 0
+    timer:reset()
 
     local classLossSum, pixelRGBLossSum, pixelABLossSum, contentLossSum, kldLossSum, totalLossSum = 0, 0, 0, 0, 0, 0
     local top1, top5 = 0, 0
@@ -125,7 +126,10 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
         model.trainingNet:zeroGradParameters()
         
         for superBatch = 1, opt.superBatches do
+            local loadTimeStart = dataTimer:time().real
             local batch = imageLoader.sampleBatch(imgLoader)
+            local loadTimeEnd = dataTimer:time().real
+            dataLoadingTime = dataLoadingTime + (loadTimeEnd - loadTimeStart)
             
             local randomnessCPU
             if opt.useRandomness then
