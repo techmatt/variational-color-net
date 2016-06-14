@@ -65,7 +65,7 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
     
     cutorch.synchronize()
 
-    local classLossSum, pixelLossSum, contentLossSum, totalLossSum, kldLossSum = 0, 0, 0, 0, 0
+    local classLossSum, pixelRGBLossSum, pixelABLossSum, contentLossSum, totalLossSum, kldLossSum = 0, 0, 0, 0, 0, 0
     local top1, top5 = 0, 0
     local feval = function(x)
         model.trainingNet:zeroGradParameters()
@@ -100,22 +100,24 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
         
             local contentTargets = model.vggNet:forward(RGBTargets):clone()
             
-            local outputLoss = model.trainingNet:forward({grayscaleInputs, randomness, RGBTargets, contentTargets, classLabels})
+            local outputLoss = model.trainingNet:forward({grayscaleInputs, randomness, ABTargets, RGBTargets, contentTargets, classLabels})
             
             local classLoss = outputLoss[1][1]
-            local pixelLoss = outputLoss[2][1]
-            local contentLoss = outputLoss[3][1]
-            local kldLoss = outputLoss[4][1]
+            local pixelABLoss = outputLoss[2][1]
+            local pixelRGBLoss = outputLoss[3][1]
+            local contentLoss = outputLoss[4][1]
+            local kldLoss = outputLoss[5][1]
             
             classLossSum = classLossSum + classLoss
-            pixelLossSum = pixelLossSum + pixelLoss
+            pixelABLossSum = pixelABLossSum + pixelABLoss
+            pixelRGBLossSum = pixelRGBLossSum + pixelRGBLoss
             contentLossSum = contentLossSum + contentLoss
             kldLossSum = kldLossSum + kldLoss
-            totalLossSum = totalLossSum + classLoss + pixelLoss + contentLoss + kldLoss
+            totalLossSum = totalLossSum + classLoss + pixelABLoss + pixelRGBLoss + contentLoss + kldLoss
             
             local classProbabilities = model.classProbabilities.data.module.output
             
-            model.trainingNet:backward({grayscaleInputs, randomness, RGBTargets, contentTargets, classLabels}, outputLoss)
+            model.trainingNet:backward({grayscaleInputs, randomness, ABTargets, RGBTargets, contentTargets, classLabels}, outputLoss)
             
             if superBatch == 1 then
                 do
@@ -150,7 +152,8 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
     
     epochStats.total = epochStats.total + totalLossSum
     epochStats.class = epochStats.class + classLossSum
-    epochStats.pixel = epochStats.pixel + pixelLossSum
+    epochStats.pixelAB = epochStats.pixelAB + pixelABLossSum
+    epochStats.pixelRGB = epochStats.pixelRGB + pixelRGBLossSum
     epochStats.content = epochStats.content + contentLossSum
     epochStats.kld = epochStats.kld + kldLossSum
     
@@ -164,7 +167,8 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
     print(string.format('  Top 1 accuracy: %f%%', top1))
     print(string.format('  Top 5 accuracy: %f%%', top5))
     print(string.format('  Class loss: %f', classLossSum))
-    print(string.format('  Pixel loss: %f', pixelLossSum))
+    print(string.format('  AB loss: %f', pixelABLossSum))
+    print(string.format('  RGB loss: %f', pixelRGBLossSum))
     print(string.format('  Content loss: %f', contentLossSum))
     print(string.format('  KLD loss: %f', kldLossSum))
     
@@ -217,7 +221,8 @@ local function train(model, imgLoader, opt, epoch)
     
     epochStats.total = 0
     epochStats.class = 0
-    epochStats.pixel = 0
+    epochStats.pixelAB = 0
+    epochStats.pixelRGB = 0
     epochStats.content = 0
     epochStats.kld = 0
     
@@ -229,17 +234,19 @@ local function train(model, imgLoader, opt, epoch)
     
     cutorch.synchronize()
 
-    local scaleFactor = 1.0 / (opt.batchSize * opt.superBatchSize * opt.epochSize)
+    local scaleFactor = 1.0 / (opt.batchSize * opt.superBatches * opt.epochSize)
     epochStats.total = epochStats.total * scaleFactor
     epochStats.class = epochStats.class * scaleFactor
-    epochStats.pixel = epochStats.pixel * scaleFactor
+    epochStats.pixelAB = epochStats.pixelAB * scaleFactor
+    epochStats.pixelRGB = epochStats.pixelRGB * scaleFactor
     epochStats.content = epochStats.content * scaleFactor
     epochStats.kld = epochStats.kld * scaleFactor
     
     trainLogger:add{
         ['total loss (train set)'] = epochStats.total,
         ['class loss (train set)'] = epochStats.class,
-        ['pixel loss (train set)'] = epochStats.pixel,
+        ['RGB loss (train set)'] = epochStats.pixelRGB,
+        ['AB loss (train set)'] = epochStats.pixelAB,
         ['content loss (train set)'] = epochStats.content,
         ['KLD loss (train set)'] = epochStats.kld,
     }
