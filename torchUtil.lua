@@ -2,6 +2,8 @@
 local function getSize(tensor)
     if not tensor or not tensor.size then
         return '[nil]'
+    elseif #tensor:size() == 1 then
+        return '[' .. tostring(tensor:size()[1]) .. ']'
     elseif #tensor:size() == 2 then
         return '[' .. tostring(tensor:size()[1]) .. ' ' ..
                       tostring(tensor:size()[2]) .. ']'
@@ -16,6 +18,25 @@ local function getSize(tensor)
                       tostring(tensor:size()[4]) .. ']'
     else
         return '[unknown vector size]'
+    end
+end
+
+local function getQuartiles(tensor, count)
+    if not tensor or not tensor.size then
+        return '[nil]'
+    elseif #tensor:size() >= 1 then
+        local e = 1
+        for d = 1, #tensor:size() do
+            e = e * tensor:size()[d]
+        end
+        local t = tensor:reshape(e)
+        local sorted = torch.sort(t:float())
+        local r = ''
+        for q = 1, count do
+            local index = math.max(math.floor(q * e / count), 1)
+            r = r .. sorted[index] .. ','
+        end
+        return r
     end
 end
 
@@ -48,6 +69,31 @@ local function dumpNet(network, inputs, dir)
             saveTensor(outputs, dir .. i .. '_' .. moduleType .. '.csv')
         end
     end
+end
+
+local function dumpGraph(graph, filename)
+    print('dumping graph')
+    --lfs.mkdir(dir)
+    local out = assert(io.open(filename, "w"))
+    local splitter = ","
+    for i, module in ipairs(graph:listModules()) do
+        local moduleType = torch.type(module)
+        print('module ' .. i .. ': ' .. moduleType)
+        out:write(i .. splitter .. moduleType .. splitter .. getSize(module.output) .. splitter)
+        out:write(getQuartiles(module.output, 10))
+        out:write("\n")
+        for a,b in pairs(module) do
+            --print(a)
+            --print(b)
+        end
+        --[[if tostring(moduleType) ~= 'nn.Sequential' then
+            subnet:add(module)
+            local outputs = subnet:forward(inputs)
+            print('module ' .. i .. ': ' .. getSize(outputs) .. ': ' .. tostring(module))
+            saveTensor(outputs, dir .. i .. '_' .. moduleType .. '.csv')
+        end]]
+    end
+    out:close()
 end
 
 local function saveTensor2(tensor, filename)
@@ -202,6 +248,7 @@ return {
     getSize = getSize,
     describeNet = describeNet,
     dumpNet = dumpNet,
+    dumpGraph = dumpGraph,
     caffePreprocess = caffePreprocess,
     caffeDeprocess = caffeDeprocess,
     saveTensor = saveTensor,

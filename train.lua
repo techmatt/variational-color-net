@@ -3,6 +3,8 @@ require 'image'
 local imageLoader = require('imageLoader')
 local torchUtil = require('torchUtil')
 
+local debugBatchIndices = {[1]=true, [100]=true, [200]=true}
+
 -- Setup a reused optimization state (for adam/sgd).
 local optimState = {
     learningRate = 0.0
@@ -148,17 +150,15 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
                 local predictionAB = predictionABToRGB(grayscaleInputs[1], predictionAB)
                 local predictionRGB = predictionCorrectedRGB(grayscaleInputs[1], torchUtil.caffeDeprocess(predictionRGB))
                 
-                
                 image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_in.jpg', inClone)
                 image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_outRGB.jpg', predictionRGB)
                 image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_outAB.jpg', predictionAB)
-                
-                
             end
         
             local contentTargets = model.vggNet:forward(RGBTargets):clone()
             
             local outputLoss = model.trainingNet:forward({grayscaleInputs, randomness, ABTargets, RGBTargets, contentTargets, classLabels})
+            
             
             local classLoss = outputLoss[1][1]
             local pixelABLoss = outputLoss[2][1]
@@ -176,6 +176,10 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             local classProbabilities = model.classProbabilities.data.module.output
             
             model.trainingNet:backward({grayscaleInputs, randomness, ABTargets, RGBTargets, contentTargets, classLabels}, outputLoss)
+            
+            if debugBatchIndices[totalBatchCount] then
+                torchUtil.dumpGraph(model.trainingNet, opt.outDir .. 'graphDump' .. totalBatchCount .. '.csv')
+            end
             
             if superBatch == 1 then
                 do
