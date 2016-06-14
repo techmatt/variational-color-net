@@ -1,5 +1,4 @@
 
-require 'image'
 local imageLoader = require('imageLoader')
 local torchUtil = require('torchUtil')
 
