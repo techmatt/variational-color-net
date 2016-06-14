@@ -57,20 +57,23 @@ local randomness = torch.CudaTensor()
 local timer = torch.Timer()
 local dataTimer = torch.Timer()
 
-local function yuv2lab(i)
-    print(i:size())
-    image.scale(i, 10, 10)
-    print(i:size())
-    local r = image.yuv2rgb(i)
-    print(i:size())
-    return image.rgb2lab( image.yuv2rgb(i) )
+local function toCPUTensor(t)
+    return torch.FloatTensor(t:size()):copy(t)
 end
 
-local function lab2yuv(i)
-    return image.rgb2yuv( image.lab2rgb(i) )
+local function yuv2lab(iCPU)
+    --local iCPU = toCPUTensor(i)
+    return image.rgb2lab( image.yuv2rgb(iCPU) )
 end
 
-local function predictionABToRGB(YImage, ABImage)
+local function lab2yuv(iCPU)
+    --local iCPU = toCPUTensor(i)
+    return image.rgb2yuv( image.lab2rgb(iCPU) )
+end
+
+local function predictionABToRGB(YImageGPU, ABImageGPU)
+    local YImage = toCPUTensor(YImageGPU)
+    local ABImage = toCPUTensor(ABImageGPU)
     YImage:add(0.5)
     ABImage:mul(100.0)
     local YRepeated = torch.repeatTensor( YImage, 3, 1, 1 )
@@ -80,13 +83,24 @@ local function predictionABToRGB(YImage, ABImage)
 
     local I = torch.cat(emptyChannel, ABImage, 1)
                         
-    local O = image.scale( I, opt.cropSize, opt.cropSize )
-    O[1] = luminance
-    return lab2rgb( O )
+    local O = image.scale( I, YImage:size()[2], YImage:size()[3] )
+    O[1] = luminance[1]
+    return image.lab2rgb( O )
 end
 
-local function predictionCorrectedRGB(YImage, RGBImage)
-    return RGBImage
+local function predictionCorrectedRGB(YImageGPU, RGBImageGPU)
+    local YImage = toCPUTensor(YImageGPU)
+    local RGBImage = toCPUTensor(RGBImageGPU)
+    
+    YImage:add(0.5)
+    local YRepeated = torch.repeatTensor( YImage, 3, 1, 1 )
+    local luminance = yuv2lab(YRepeated)
+
+    local LABImage = image.rgb2lab(RGBImage)
+    local LABImage = image.scale( LABImage, YImage:size()[2], YImage:size()[3] )
+    
+    LABImage[1] = luminance[1]
+    return image.lab2rgb( LABImage )
 end
 
 -- 4. trainSuperBatch - Used by train() to train a superbatch.
@@ -131,13 +145,13 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
                 local predictionRGB = prediction[2][1]:clone()
                 --print(predictionRGB:size())
                 --print(predictionAB:size())
-                --local predictionAB = predictionABToRGB(grayscaleInputs[1], predictionAB)
+                local predictionAB = predictionABToRGB(grayscaleInputs[1], predictionAB)
                 local predictionRGB = predictionCorrectedRGB(grayscaleInputs[1], torchUtil.caffeDeprocess(predictionRGB))
                 
                 
                 image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_in.jpg', inClone)
                 image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_outRGB.jpg', predictionRGB)
-                --image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_outAB.jpg', predictionAB)
+                image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_outAB.jpg', predictionAB)
                 
                 
             end
