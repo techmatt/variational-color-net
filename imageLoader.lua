@@ -94,7 +94,8 @@ function M.sampleBatch(imageLoader)
                 
                 local RGBColor = torchUtil.caffePreprocess(downscaleImg:clone())
                 local ABColor = image.rgb2lab(downscaleImg)
-                ABColor = ABColor[{{2,3},{},{}}]
+                ABColor = ABColor[{{2,3},{},{}}]:clone()
+                ABColor:mul(1.0 / 100.0)
                 
                 return grayscale, RGBColor, ABColor
             end,

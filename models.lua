@@ -157,6 +157,7 @@ end
 local function createDecoderToAB(opt)
     local decoderToAB = nn.Sequential()
     decoderToAB:add(nn.SpatialConvolution(32, 2, 3, 3, 1, 1, 1, 1))
+    decoderToAB:add(nn.Tanh())
     return decoderToAB
 end
 
