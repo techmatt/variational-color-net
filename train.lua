@@ -3,7 +3,7 @@ local imageLoader = require('imageLoader')
 local torchUtil = require('torchUtil')
 
 --local debugBatchIndices = {[1]=true, [100]=true, [200]=true}
-local debugBatchIndices = {[5]=true}
+local debugBatchIndices = {[200]=true,[1000]=true,[5000]=true,[10000]=true}
 
 -- Setup a reused optimization state (for adam/sgd).
 local optimState = {
@@ -24,14 +24,14 @@ local optimState = {
 local function paramsForEpoch(epoch)
     local regimes = {
         -- start, end,    LR,   WD,
-        {  1,     1,   1e-3,   0 },
+        {  1,     1,   1e-2,   0 },
         {  2,     2,   1e-3,   0 },
-        {  3,     3,   5e-4,   0 },
-        {  4,     10,   4e-5,   0 },
-        { 11,     20,   2e-5,   0 },
-        { 21,     30,   1e-5,   0 },
-        { 31,     40,   5e-6,   0 },
-        { 41,    1e8,   1e-6,   0 },
+        {  3,     3,   1e-3,   0 },
+        {  4,     10,   1e-3,   0 },
+        { 11,     20,   5e-4,   0 },
+        { 21,     30,   1e-4,   0 },
+        { 31,     40,   5e-5,   0 },
+        { 41,    1e8,   1e-5,   0 },
     }
 
     for _, row in ipairs(regimes) do
@@ -184,11 +184,10 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             
             model.trainingNet:backward({grayscaleInputs, randomness, ABTargets, RGBTargets, contentTargets, classLabels}, outputLoss)
             
-            if debugBatchIndices[totalBatchCount] then
-                torchUtil.dumpGraph(model.trainingNet, opt.outDir .. 'graphDump' .. totalBatchCount .. '.csv')
-            end
-            
             if superBatch == 1 then
+                if debugBatchIndices[totalBatchCount] then
+                    torchUtil.dumpGraph(model.trainingNet, opt.outDir .. 'graphDump' .. totalBatchCount .. '.csv')
+                end
                 do
                     local _, predictions = classProbabilities:float():sort(2, true) -- descending
                     for b = 1, opt.batchSize do
