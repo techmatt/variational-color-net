@@ -1,3 +1,5 @@
+
+require 'image'
 local imageLoader = require('imageLoader')
 local torchUtil = require('torchUtil')
 
@@ -55,6 +57,38 @@ local randomness = torch.CudaTensor()
 local timer = torch.Timer()
 local dataTimer = torch.Timer()
 
+local function yuv2lab(i)
+    print(i:size())
+    image.scale(i, 10, 10)
+    print(i:size())
+    local r = image.yuv2rgb(i)
+    print(i:size())
+    return image.rgb2lab( image.yuv2rgb(i) )
+end
+
+local function lab2yuv(i)
+    return image.rgb2yuv( image.lab2rgb(i) )
+end
+
+local function predictionABToRGB(YImage, ABImage)
+    YImage:add(0.5)
+    ABImage:mul(100.0)
+    local YRepeated = torch.repeatTensor( YImage, 3, 1, 1 )
+    local luminance = yuv2lab(YRepeated)
+
+    local emptyChannel = ABImage[{{1},{},{}}]:float()
+
+    local I = torch.cat(emptyChannel, ABImage, 1)
+                        
+    local O = image.scale( I, opt.cropSize, opt.cropSize )
+    O[1] = luminance
+    return lab2rgb( O )
+end
+
+local function predictionCorrectedRGB(YImage, RGBImage)
+    return RGBImage
+end
+
 -- 4. trainSuperBatch - Used by train() to train a superbatch.
 local function trainSuperBatch(model, imgLoader, opt, epoch)
     
@@ -65,7 +99,7 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
     
     cutorch.synchronize()
 
-    local classLossSum, pixelRGBLossSum, pixelABLossSum, contentLossSum, totalLossSum, kldLossSum = 0, 0, 0, 0, 0, 0
+    local classLossSum, pixelRGBLossSum, pixelABLossSum, contentLossSum, kldLossSum, totalLossSum = 0, 0, 0, 0, 0, 0
     local top1, top5 = 0, 0
     local feval = function(x)
         model.trainingNet:zeroGradParameters()
@@ -77,7 +111,8 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             if useRandomness then
                 randomnessCPU = torch.randn(opt.batchSize, 512, 28, 28)
             else
-                randomnessCPU = torch.FloatTensor(opt.batchSize, 512, 28, 28):zero()
+                -- one lets it make some use of the sigma terms
+                randomnessCPU = torch.FloatTensor(opt.batchSize, 512, 28, 28):zero():add(1.0)
             end
             
             -- transfer over to GPU
@@ -91,11 +126,20 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
                 local inClone = RGBTargets[1]:clone()
                 inClone = torchUtil.caffeDeprocess(inClone)
                 
-                local outClone = model.predictionNet:forward({grayscaleInputs, randomness})[1]:clone()
-                outClone = torchUtil.caffeDeprocess(outClone)
+                local prediction = model.predictionNet:forward({grayscaleInputs, randomness})
+                local predictionAB = prediction[1][1]:clone()
+                local predictionRGB = prediction[2][1]:clone()
+                --print(predictionRGB:size())
+                --print(predictionAB:size())
+                --local predictionAB = predictionABToRGB(grayscaleInputs[1], predictionAB)
+                local predictionRGB = predictionCorrectedRGB(grayscaleInputs[1], torchUtil.caffeDeprocess(predictionRGB))
+                
                 
                 image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_in.jpg', inClone)
-                image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_out.jpg', outClone)
+                image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_outRGB.jpg', predictionRGB)
+                --image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_outAB.jpg', predictionAB)
+                
+                
             end
         
             local contentTargets = model.vggNet:forward(RGBTargets):clone()

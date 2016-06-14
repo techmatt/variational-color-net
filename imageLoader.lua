@@ -84,6 +84,8 @@ function M.sampleBatch(imageLoader)
 
                 -- Grayscale image
                 local grayscale = image.rgb2y(sourceImg)
+                -- y is in the range 0 - 1
+                
                 --[[local imgGray = torch.FloatTensor(1, opt.cropSize, opt.cropSize):zero()
                 grayscale:add(0.299, sourceImg:select(1, 1))
                 grayscale:add(0.587, sourceImg:select(1, 2))

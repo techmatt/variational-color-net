@@ -214,9 +214,9 @@ local function createPredictionNet(opt, subnets)
     local sample = subnets.reparameterizer({params, randomness}):annotate({name = 'sample'})
     local decoderOutput = subnets.decoder(sample):annotate({name = 'decoderOutput'})
     local RGBOutput = subnets.decoderToRGB(decoderOutput):annotate({name = 'RGBOutput'})
-    --local LABOutput = subnets.decoderToLAB(decoderOutput):annotate({name = 'LABOutput'})
+    local ABOutput = subnets.decoderToAB(decoderOutput):annotate({name = 'ABOutput'})
 
-    local predictionNet = nn.gModule({grayscaleImage, randomness}, {RGBOutput})
+    local predictionNet = nn.gModule({grayscaleImage, randomness}, {ABOutput, RGBOutput})
     cudnn.convert(predictionNet, cudnn)
     predictionNet = predictionNet:cuda()
     return predictionNet
