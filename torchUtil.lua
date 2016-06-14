@@ -23,7 +23,11 @@ end
 
 local function getQuartiles(tensor, count)
     if not tensor or not tensor.size then
-        return '[nil]' .. ','
+        local r = ''
+        for q = 1, count do
+            r = r .. ' ' .. ','
+        end
+        return r
     elseif #tensor:size() >= 1 then
         local e = 1
         for d = 1, #tensor:size() do
@@ -90,6 +94,7 @@ local function dumpGraph(graph, filename)
         out:write( getSize(module.gradInput) .. splitter .. getQuartiles(module.gradInput, 10))
         out:write("\n")
         for a,b in pairs(module) do
+            --if a == '_type' then print(a) print(b) end
             --print(a)
             --print(b)
         end

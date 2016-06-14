@@ -3,7 +3,7 @@ local imageLoader = require('imageLoader')
 local torchUtil = require('torchUtil')
 
 --local debugBatchIndices = {[1]=true, [100]=true, [200]=true}
-local debugBatchIndices = {[500]=true}
+local debugBatchIndices = {[5]=true}
 
 -- Setup a reused optimization state (for adam/sgd).
 local optimState = {
@@ -128,7 +128,7 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             local batch = imageLoader.sampleBatch(imgLoader)
             
             local randomnessCPU
-            if useRandomness then
+            if opt.useRandomness then
                 randomnessCPU = torch.randn(opt.batchSize, 512, 28, 28)
             else
                 -- one lets it make some use of the sigma terms
