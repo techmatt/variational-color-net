@@ -145,26 +145,6 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             ABTargets:resize(batch.ABTargets:size()):copy(batch.ABTargets)
             classLabels:resize(batch.classLabels:size()):copy(batch.classLabels)
             randomness:resize(randomnessCPU:size()):copy(randomnessCPU)
-
-            if superBatch == 1 and totalBatchCount % 100 == 0 then
-                local inClone = RGBTargets[1]:clone()
-                inClone = torchUtil.caffeDeprocess(inClone)
-                
-                local prediction = model.predictionNet:forward({grayscaleInputs, randomness})
-                local predictionAB = prediction[1][1]:clone()
-                local predictionRGB = torchUtil.caffeDeprocess(prediction[2][1]:clone())
-                
-                image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_outRGBDebug.jpg', predictionRGB)
-                
-                --print(predictionRGB:size())
-                --print(predictionAB:size())
-                local predictionAB = predictionABToRGB(grayscaleInputs[1], predictionAB)
-                local predictionRGB = predictionCorrectedRGB(grayscaleInputs[1], predictionRGB)
-                
-                image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_in.jpg', inClone)
-                image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_outRGB.jpg', predictionRGB)
-                image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_outAB.jpg', predictionAB)
-            end
         
             local contentTargets = model.vggNet:forward(RGBTargets):clone()
             
@@ -188,6 +168,7 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             
             model.trainingNet:backward({grayscaleInputs, randomness, ABTargets, RGBTargets, contentTargets, classLabels}, outputLoss)
             
+
             if debugBatchIndices[totalBatchCount] then
                 torchUtil.dumpGraph(model.trainingNet, opt.outDir .. 'graphDump' .. totalBatchCount .. '.csv')
             end
@@ -210,6 +191,35 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
                     end
                     top1 = top1 * 100 / opt.batchSize
                     top5 = top5 * 100 / opt.batchSize
+                end
+            end
+
+            -- Output test samples
+            if superBatch == 1 and totalBatchCount % 100 == 0 then
+                -- Copy image #1 into the entire batch for grayscaleInputs
+                -- This allows us to output N random samples from the network, where N = batch size
+                for batchIndex = 2, opt.batchSize do
+                    grayscaleInputs[batchIndex]:copy(grayscaleInputs[1])
+                end
+
+                -- Save ground truth RGB image
+                local inClone = RGBTargets[1]:clone()
+                inClone = torchUtil.caffeDeprocess(inClone)
+                image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_groundTruth.jpg', inClone)
+                
+                -- Save predicted images
+                for testSampleIndex = 1, opt.numTestSamples do
+                    local prediction = model.predictionNet:forward({grayscaleInputs, randomness})
+                    local predictionAB = prediction[1][testSampleIndex]:clone()
+                    local predictionRGB = torchUtil.caffeDeprocess(prediction[2][testSampleIndex]:clone())
+                    
+                    image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_sample' .. testSampleIndex .. '_predictedRGBDebug.jpg', predictionRGB)
+                    
+                    local predictionAB = predictionABToRGB(grayscaleInputs[1], predictionAB)
+                    local predictionRGB = predictionCorrectedRGB(grayscaleInputs[1], predictionRGB)
+                    
+                    image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_sample' .. testSampleIndex .. '_predictedRGB.jpg', predictionRGB)
+                    image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_sample' .. testSampleIndex .. '_predictedAB.jpg', predictionAB)
                 end
             end
         end

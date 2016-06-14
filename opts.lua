@@ -8,7 +8,7 @@ function M.parse(arg)
     cmd:text()
     cmd:text('Options:')
     
-    ------------ Network loss options ---------------
+    ------------ Network  options ---------------
     cmd:option('-outDir', 'out/', 'TODO')
     cmd:option('-imageListBase', 'data/places', 'TODO')
     cmd:option('-batchSize', 20, 'mini-batch size (1 = pure stochastic)')
@@ -31,9 +31,10 @@ function M.parse(arg)
     cmd:option('-GPU', 2, 'Default preferred GPU')
     
     ------------- Training options --------------------
-    cmd:option('-epochCount',         100,    'Number of total epochs to run')
+    cmd:option('-epochCount',      100,    'Number of total epochs to run')
     cmd:option('-epochSize',       5000, 'Number of batches per epoch')
     cmd:option('-epochNumber',     1,     'Manual epoch number (useful on restarts)')
+    cmd:option('-numTestSamples',  5, 'Number of test samples to render periodically during training')
     
     ------------- Data options ------------------------
     cmd:option('-nDonkeys',        8, 'number of donkeys to initialize (data loading threads)')
@@ -42,6 +43,8 @@ function M.parse(arg)
     
     opt.halfCropSize = opt.cropSize / 2
     if not opt.useRandomness then opt.KLDWeight = 0.00001 end -- cannot be 0 because of how backprop works
+
+    assert(opt.numTestSamples <= opt.batchSize, 'numTestSamples must not exceed batchSize')
     
     return opt
 end
