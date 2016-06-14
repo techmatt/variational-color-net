@@ -2,7 +2,8 @@
 local imageLoader = require('imageLoader')
 local torchUtil = require('torchUtil')
 
-local debugBatchIndices = {[1]=true, [100]=true, [200]=true}
+--local debugBatchIndices = {[1]=true, [100]=true, [200]=true}
+local debugBatchIndices = {[200]=true}
 
 -- Setup a reused optimization state (for adam/sgd).
 local optimState = {
@@ -143,11 +144,14 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
                 
                 local prediction = model.predictionNet:forward({grayscaleInputs, randomness})
                 local predictionAB = prediction[1][1]:clone()
-                local predictionRGB = prediction[2][1]:clone()
+                local predictionRGB = torchUtil.caffeDeprocess(prediction[2][1]:clone())
+                
+                image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_outRGBDebug.jpg', predictionRGB)
+                
                 --print(predictionRGB:size())
                 --print(predictionAB:size())
                 local predictionAB = predictionABToRGB(grayscaleInputs[1], predictionAB)
-                local predictionRGB = predictionCorrectedRGB(grayscaleInputs[1], torchUtil.caffeDeprocess(predictionRGB))
+                local predictionRGB = predictionCorrectedRGB(grayscaleInputs[1], predictionRGB)
                 
                 image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_in.jpg', inClone)
                 image.save(opt.outDir .. 'samples/sample' .. totalBatchCount .. '_outRGB.jpg', predictionRGB)

@@ -3,8 +3,6 @@ local threadPool = require('threadPool')
 local util = require('util')
 local torchUtil = require('torchUtil')
 
--- TODO: turn this into a class
-
 local M = {}
 
 function M.makeImageLoader(opt)
@@ -116,7 +114,5 @@ function M.sampleBatch(imageLoader)
     batch.classLabels = classLabels
     return batch
 end
-
-
 
 return M

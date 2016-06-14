@@ -117,6 +117,13 @@ local function createGlobalLevel(opt)
     return globalLevel
 end
 
+local function createClassifier(opt)
+    local classificationNet = nn.Sequential()
+    addLinearElement(classificationNet, 512, 256)
+    classificationNet:add(nn.Linear(256, 205))
+    return classificationNet
+end
+
 local function createGlobalToFusion(opt)
     local globalToFusion = nn.Sequential()
 
@@ -188,15 +195,6 @@ local function createReparameterizer(opt)
     local output = nn.CAddTable()({mu, nn.CMulTable()({sigma, randomness})})
 
     return nn.gModule({params, randomness}, {output})
-end
-
-local function createClassifier(opt)
-    local classificationNet = nn.Sequential()
-    classificationNet:add(nn.Linear(512, 256))
-    classificationNet:add(nn.ReLU(true))
-    classificationNet:add(nn.Linear(256, 205))
-    classificationNet:add(nn.ReLU(true))
-    return classificationNet
 end
 
 local function createPredictionNet(opt, subnets)
