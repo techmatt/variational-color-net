@@ -19,7 +19,7 @@ function M.parse(arg)
     
     cmd:option('-contentWeight', 0.0001, 'TODO')
     cmd:option('-pixelRGBWeight', 0.001, 'TODO')
-    cmd:option('-pixelLABWeight', 200.0, 'TODO')
+    cmd:option('-pixelLABWeight', 1.0, 'TODO')
     cmd:option('-classWeight', 1.0, 'TODO')
     cmd:option('-TVWeight', 1e-5, 'TODO')
     cmd:option('-KLDWeight', 1.0, 'TODO')

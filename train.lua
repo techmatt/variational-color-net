@@ -168,12 +168,11 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             
             model.trainingNet:backward({grayscaleInputs, randomness, ABTargets, RGBTargets, contentTargets, classLabels}, outputLoss)
             
-
-            if debugBatchIndices[totalBatchCount] then
-                torchUtil.dumpGraph(model.trainingNet, opt.outDir .. 'graphDump' .. totalBatchCount .. '.csv')
-            end
-            
             if superBatch == 1 then
+                if debugBatchIndices[totalBatchCount] then
+                    torchUtil.dumpGraph(model.trainingNet, opt.outDir .. 'graphDump' .. totalBatchCount .. '.csv')
+                end
+                
                 do
                     local _, predictions = classProbabilities:float():sort(2, true) -- descending
                     for b = 1, opt.batchSize do
