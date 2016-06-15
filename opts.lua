@@ -24,6 +24,7 @@ function M.parse(arg)
     cmd:option('-TVWeight', 1e-5, 'TODO')
     cmd:option('-KLDWeight', 1.0, 'TODO')
     cmd:option('-useRandomness', true, 'TODO')
+    cmd:option('-classifierOnly', false, 'TODO')
     
     cmd:option('-pretrainedTransformModel', 'out/models/transform14.ty', 'TODO')
     

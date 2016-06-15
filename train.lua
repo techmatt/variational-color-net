@@ -260,6 +260,90 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
     totalBatchCount = totalBatchCount + 1
 end
 
+-- 4. trainSuperBatch - Used by train() to train a classifier-only superbatch.
+local function trainSuperBatchClassifier(model, imgLoader, opt, epoch)
+    local parameters, gradParameters = model.classifierTrainingNet:getParameters()
+    
+    cutorch.synchronize()
+
+    local dataLoadingTime = 0
+    timer:reset()
+
+    local classLossSum = 0
+    local top1, top5 = 0, 0
+    local feval = function(x)
+        model.classifierTrainingNet:zeroGradParameters()
+        
+        for superBatch = 1, opt.superBatches do
+            local loadTimeStart = dataTimer:time().real
+            local batch = imageLoader.sampleBatch(imgLoader)
+            local loadTimeEnd = dataTimer:time().real
+            dataLoadingTime = dataLoadingTime + (loadTimeEnd - loadTimeStart)
+            
+            -- transfer over to GPU
+            grayscaleInputs:resize(batch.grayscaleInputs:size()):copy(batch.grayscaleInputs)
+            classLabels:resize(batch.classLabels:size()):copy(batch.classLabels)
+            
+            local outputLoss = model.classifierTrainingNet:forward({grayscaleInputs, classLabels})
+            
+            local classLoss = outputLoss[1]
+            
+            classLossSum = classLossSum + classLoss
+            
+            local classProbabilities = model.classifierClassProbabilities.data.module.output
+            
+            model.classifierTrainingNet:backward({grayscaleInputs, classLabels}, outputLoss)
+            
+            if superBatch == 1 then
+                if debugBatchIndices[totalBatchCount] then
+                    torchUtil.dumpGraph(model.classifierTrainingNet, opt.outDir .. 'graphDump' .. totalBatchCount .. '.csv')
+                end
+                
+                do
+                    local _, predictions = classProbabilities:float():sort(2, true) -- descending
+                    for b = 1, opt.batchSize do
+                        --print(predictions[b][1] .. ' vs ' .. classLabelsCPU[b][1])
+                        if predictions[b][1] == batch.classLabels[b] then
+                            top1 = top1 + 1
+                        end
+                        if predictions[b][1] == batch.classLabels[b] or
+                           predictions[b][2] == batch.classLabels[b] or
+                           predictions[b][3] == batch.classLabels[b] or
+                           predictions[b][4] == batch.classLabels[b] or
+                           predictions[b][5] == batch.classLabels[b] then
+                            top5 = top5 + 1
+                        end
+                    end
+                    top1 = top1 * 100 / opt.batchSize
+                    top5 = top5 * 100 / opt.batchSize
+                end
+            end
+        end
+        
+        return classLossSum, gradParameters
+    end
+    optim.adam(feval, parameters, optimState)
+
+    cutorch.synchronize()
+    batchNumber = batchNumber + 1
+    
+    epochStats.class = epochStats.class + classLossSum
+    
+    epochStats.top1Accuracy = top1
+    epochStats.top5Accuracy = top5
+    
+    print(('Epoch: [%d][%d/%d]\tTime %.3f Err %.4f LR %.0e DataLoadingTime %.3f'):format(
+        epoch, batchNumber, opt.epochSize, timer:time().real, classLossSum,
+        optimState.learningRate, dataLoadingTime))
+        
+    print(string.format('  Top 1 accuracy: %f%%', top1))
+    print(string.format('  Top 5 accuracy: %f%%', top5))
+    print(string.format('  Class loss: %f', classLossSum))
+    
+    dataTimer:reset()
+    totalBatchCount = totalBatchCount + 1
+end
+
 -------------------------------------------------------------------------------------------
 
 
@@ -299,6 +383,7 @@ local function train(model, imgLoader, opt, epoch)
     cutorch.synchronize()
 
     -- set the dropouts to training mode
+    model.classifierTrainingNet:training()
     model.trainingNet:training()
     
     local tm = torch.Timer()
@@ -311,9 +396,11 @@ local function train(model, imgLoader, opt, epoch)
     epochStats.kld = 0
     
     for i = 1, opt.epochSize do
-        --local batch = imageLoader.sampleBatch(imgLoader)
-        --trainBatch(model, batch.grayscaleInputs, batch.colorTargets, batch.classLabels, opt, epoch)
-        trainSuperBatch(model, imgLoader, opt, epoch)
+        if opt.classifierOnly then
+            trainSuperBatchClassifier(model, imgLoader, opt, epoch)
+        else
+            trainSuperBatch(model, imgLoader, opt, epoch)
+        end
     end
     
     cutorch.synchronize()

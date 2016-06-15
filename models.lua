@@ -52,6 +52,7 @@ local function addResidualBlock(network,iChannels,oChannels,size,stride,padding)
 end
 
 local function createVGG(opt)
+    if opt.classifierOnly then return nn.Identity() end
     local contentBatch = torch.FloatTensor(opt.batchSize, 3, opt.cropSize, opt.cropSize)
     
     local vggIn = loadcaffe.load('models/VGG_ILSVRC_19_layers_deploy.prototxt',
@@ -105,7 +106,7 @@ local function createGlobalLevel(opt)
     local globalLevel = nn.Sequential()
 
     addConvElement(globalLevel, 256, 256, 3, 2, 1)
-    --addResidualBlock(globalLevel, 256, 256, 3, 1, 1)
+    addResidualBlock(globalLevel, 256, 256, 3, 1, 1)
     
     addConvElement(globalLevel, 256, 256, 3, 2, 1)
     --addResidualBlock(globalLevel, 256, 256, 3, 1, 1)
@@ -195,6 +196,32 @@ local function createReparameterizer(opt)
     local output = nn.CAddTable()({mu, nn.CMulTable()({sigma, randomness})})
 
     return nn.gModule({params, randomness}, {output})
+end
+
+local function createClassifierTrainingNet(opt, subnets)
+    -- Input nodes
+    local grayscaleImage = nn.Identity()():annotate({name = 'grayscaleImage'})
+    local targetCategories = nn.Identity()():annotate({name = 'targetCategories'}) 
+
+    -- Intermediates
+    local encoderOutput = subnets.encoder(grayscaleImage):annotate({name = 'encoderOutput'})
+    local globalLevelOutput = subnets.globalLevel(encoderOutput):annotate({name = 'globalLevelOutput'})
+    local classProbabilitiesPreLog = subnets.classifier(globalLevelOutput):annotate({name = 'classProbabilitiesPreLog'})
+    
+    -- Losses
+    
+    print('adding class loss')
+    local classProbabilities = cudnn.LogSoftMax()(classProbabilitiesPreLog):annotate({name = 'classProbabilities'})
+    local classLoss = nn.ClassNLLCriterion()({classProbabilities, targetCategories}):annotate{name = 'classLoss'}
+    --local classLoss = nn.CrossEntropyCriterion()({classProbabilitiesPreLog, targetCategories}):annotate({name = 'classLoss'})
+    
+    -- Full training network including all loss functions
+    local classifierTrainingNet = nn.gModule({grayscaleImage, targetCategories}, {classLoss})
+
+    cudnn.convert(classifierTrainingNet, cudnn)
+    classifierTrainingNet = classifierTrainingNet:cuda()
+    graph.dot(classifierTrainingNet.fg, 'classifierGraphForward', 'classifierGraphForward')
+    return classifierTrainingNet, classProbabilities
 end
 
 local function createPredictionNet(opt, subnets)
@@ -306,6 +333,7 @@ local function createModel(opt)
 
     -- Create composite nets
     r.predictionNet = createPredictionNet(opt, subnets)
+    r.classifierTrainingNet, r.classifierClassProbabilities = createClassifierTrainingNet(opt, subnets)
     r.trainingNet, r.classProbabilities = createTrainingNet(opt, subnets)
     
     return r
