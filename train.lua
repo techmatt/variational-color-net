@@ -163,6 +163,8 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             contentLossSum = contentLossSum + contentLoss
             kldLossSum = kldLossSum + kldLoss
             totalLossSum = totalLossSum + classLoss + pixelABLoss + pixelRGBLoss + contentLoss + kldLoss
+            -- Check nans
+            assert(totalLossSum == totalLossSum, 'NaN in loss!')
             
             local classProbabilities = model.classProbabilities.data.module.output
             

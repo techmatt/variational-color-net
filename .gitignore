@@ -1,4 +1,4 @@
-/out
+/out*
 /data
 ._*
 /graph.dot
@@ -7,4 +7,3 @@
 /graphBackward.svg
 /graphForward.dot
 /graphForward.svg
-/out-Old
