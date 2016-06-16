@@ -256,6 +256,70 @@ local function reflectionPadImage(tensor, padding)
 end
 
 
+local function moduelHasParams(module)
+    local moduleType = tostring(torch.type(module))
+    if moduleType == 'nn.gModule' or
+       moduleType == 'nn.Sequential' or
+       moduleType == 'nn.Identity' or
+       moduleType == 'cudnn.ReLU' or
+       moduleType == 'cudnn.SpatialMaxPooling' or
+       moduleType == 'nn.ReLU' or
+       moduleType == 'nn.LeakyReLU' or
+       moduleType == 'nn.Reshape' or
+       moduleType == 'cudnn.Tanh' or
+       moduleType == 'nn.JoinTable' or
+       moduleType == 'nn.TVLoss' or
+       moduleType == 'nn.ModuleFromCriterion' or
+       moduleType == 'nn.MulConstant' or
+       moduleType == 'nn.ConcatTable' then
+       return false
+    end
+    if moduleType == 'cudnn.SpatialConvolution' or
+       moduleType == 'cudnn.SpatialFullConvolution' or
+       moduleType == 'cudnn.SpatialBatchNormalization' or
+       moduleType == 'cudnn.BatchNormalization' or
+       moduleType == 'nn.Linear' or
+       moduleType == 'nn.Sequential' or
+       moduleType == 'nn.Sequential' or
+       moduleType == 'nn.yy' then
+       return true
+    end
+    assert(false, 'unknown module type: ' .. moduleType)
+end
+
+local function transferParams(sourceNetwork, targetNetwork)
+    print('transterring parameters')
+    local sourceNetworkList = {}
+    for i, module in ipairs(sourceNetwork:listModules()) do
+        if moduelHasParams(module) then
+            assert(module.paramName ~= nil, 'unnamed parameter block in source network: module ' .. i .. ' ' .. tostring(torch.type(module)))
+            sourceNetworkList[module.paramName] = module
+        end
+    end
+    
+    local paramsLoaded = 0
+    for i, module in ipairs(targetNetwork:listModules()) do
+        if moduelHasParams(module) then
+            assert(module.paramName ~= nil, 'unnamed parameter block in target network: module ' .. i .. ' ' .. tostring(torch.type(module)))
+            if sourceNetworkList[module.paramName] == nil then
+                print('no parameters found for ' .. module.paramName)
+            else
+                paramsLoaded = paramsLoaded + 1
+                --print('copying paramters for ' .. module.paramName)
+                module = sourceNetworkList[module.paramName]:clone()
+            end
+        end
+    end
+    print(paramsLoaded .. ' module parameters transferred')
+end
+
+local function nameLastModParams(network)
+    assert(network.paramName ~= nil, 'unnamed network')
+    local l = network:listModules()
+    local lastMod = l[#l]
+    lastMod.paramName = network.paramName .. '_' .. #l .. '_' .. torch.type(lastMod)
+end
+
 return {
     getSize = getSize,
     describeNet = describeNet,
@@ -264,6 +328,9 @@ return {
     caffePreprocess = caffePreprocess,
     caffeDeprocess = caffeDeprocess,
     saveTensor = saveTensor,
-    reflectionPadImage = reflectionPadImage
+    reflectionPadImage = reflectionPadImage,
+    moduelHasParams = moduelHasParams,
+    transferParams = transferParams,
+    nameLastModParams = nameLastModParams,
 }
 
