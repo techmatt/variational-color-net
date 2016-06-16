@@ -142,7 +142,7 @@ local function createColorEncoder(opt)
     
     colorEncoder:add(nn.Linear(1024, colorGuideSize))
     nameLastModParams(colorEncoder)
-    colorEncoder:add(nn.Tanh())
+    --colorEncoder:add(nn.Tanh())
     
     return colorEncoder
 end
@@ -266,9 +266,9 @@ local function createModel(opt)
     r.colorGuideNet = createColorGuideNet(opt, subnets)
     r.colorGuidePredictionNet = createColorGuidePredictionNet(opt, subnets)
     
-    local pretrainedColorGuide = torch.load('pretrainedModels/transform1.t7')
-    
-    transferParams(pretrainedColorGuide, r.colorGuideNet)
+    --local pretrainedColorGuide = torch.load('pretrainedModels/transform1.t7')
+    --pretrainedColorGuide:clearState()
+    --transferParams(pretrainedColorGuide, r.colorGuideNet)
     
     return r
 end

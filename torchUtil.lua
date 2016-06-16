@@ -278,10 +278,7 @@ local function moduelHasParams(module)
        moduleType == 'cudnn.SpatialFullConvolution' or
        moduleType == 'cudnn.SpatialBatchNormalization' or
        moduleType == 'cudnn.BatchNormalization' or
-       moduleType == 'nn.Linear' or
-       moduleType == 'nn.Sequential' or
-       moduleType == 'nn.Sequential' or
-       moduleType == 'nn.yy' then
+       moduleType == 'nn.Linear' then
        return true
     end
     assert(false, 'unknown module type: ' .. moduleType)
@@ -296,9 +293,24 @@ local function transferParams(sourceNetwork, targetNetwork)
             sourceNetworkList[module.paramName] = module
         end
     end
-    
+      
     local paramsLoaded = 0
-    for i, module in ipairs(targetNetwork:listModules()) do
+    
+    targetNetwork:replace(function(module)
+        if moduelHasParams(module) then
+            assert(module.paramName ~= nil, 'unnamed parameter block in target network: ' .. tostring(torch.type(module)))
+            if sourceNetworkList[module.paramName] == nil then
+                print('no parameters found for ' .. module.paramName)
+            else
+                paramsLoaded = paramsLoaded + 1
+                --print('copying paramters for ' .. module.paramName)
+                return sourceNetworkList[module.paramName] --:clone()
+            end
+        end
+        return module
+    end)
+    
+    --[[for i, module in ipairs(targetNetwork:listModules()) do
         if moduelHasParams(module) then
             assert(module.paramName ~= nil, 'unnamed parameter block in target network: module ' .. i .. ' ' .. tostring(torch.type(module)))
             if sourceNetworkList[module.paramName] == nil then
@@ -306,10 +318,22 @@ local function transferParams(sourceNetwork, targetNetwork)
             else
                 paramsLoaded = paramsLoaded + 1
                 --print('copying paramters for ' .. module.paramName)
-                module = sourceNetworkList[module.paramName]:clone()
+                --module = sourceNetworkList[module.paramName]:clone()
+                
+                local modsReplaced = 0
+                targetNetwork:replace(function(m)
+                    print('replace ' .. tostring(torch.type(m)) .. ' ' .. tostring(m.paramName))
+                    if m.paramName == module.paramName then
+                        modsReplaced = modsReplaced + 1
+                        return sourceNetworkList[module.paramName]:clone()
+                    else
+                        return m
+                    end
+                end)
+                assert(modsReplaced == 1, 'more than one module replaced')
             end
         end
-    end
+    end]]
     print(paramsLoaded .. ' module parameters transferred')
 end
 

@@ -33,7 +33,7 @@ function M.parse(arg)
     
     ------------- Training options --------------------
     cmd:option('-epochCount',      100,    'Number of total epochs to run')
-    cmd:option('-epochSize',       1000, 'Number of batches per epoch')
+    cmd:option('-epochSize',       5000, 'Number of batches per epoch')
     cmd:option('-epochNumber',     1,     'Manual epoch number (useful on restarts)')
     cmd:option('-numTestSamples',  1, 'Number of test samples to render periodically during training')
     
