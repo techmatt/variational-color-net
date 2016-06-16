@@ -2,7 +2,6 @@
 require('nnModules')
 
 local useResidualBlock = true
-local useBatchNorm = true
 local useLeakyReLU = true
 local colorGuideSize = 512
 
@@ -14,23 +13,91 @@ local function makeReLU()
     end
 end
 
+local function moduelHasParams(module)
+    local moduleType = tostring(torch.type(module))
+    if moduleType == 'nn.gModule' or
+       moduleType == 'nn.Sequential' or
+       moduleType == 'nn.Identity' or
+       moduleType == 'cudnn.ReLU' or
+       moduleType == 'cudnn.SpatialMaxPooling' or
+       moduleType == 'nn.ReLU' or
+       moduleType == 'nn.LeakyReLU' or
+       moduleType == 'nn.Reshape' or
+       moduleType == 'cudnn.Tanh' or
+       moduleType == 'nn.JoinTable' or
+       moduleType == 'nn.TVLoss' or
+       moduleType == 'nn.ModuleFromCriterion' or
+       moduleType == 'nn.MulConstant' or
+       moduleType == 'nn.ConcatTable' then
+       return false
+    end
+    if moduleType == 'cudnn.SpatialConvolution' or
+       moduleType == 'cudnn.SpatialFullConvolution' or
+       moduleType == 'cudnn.SpatialBatchNormalization' or
+       moduleType == 'cudnn.BatchNormalization' or
+       moduleType == 'nn.Linear' or
+       moduleType == 'nn.Sequential' or
+       moduleType == 'nn.Sequential' or
+       moduleType == 'nn.yy' then
+       return true
+    end
+    assert(false, 'unknown module type: ' .. moduleType)
+end
+
+local function transferParams(sourceNetwork, targetNetwork)
+    print('transterring parameters')
+    local sourceNetworkList = {}
+    for i, module in ipairs(sourceNetwork:listModules()) do
+        print(module.paramName)
+        if moduelHasParams(module) then
+            assert(module.paramName ~= nil, 'unnamed parameter block in source network: module ' .. i .. ' ' .. tostring(torch.type(module)))
+            sourceNetworkList[module.paramName] = module
+        end
+    end
+    
+    for i, module in ipairs(targetNetwork:listModules()) do
+        if moduelHasParams(module) then
+            assert(module.paramName ~= nil, 'unnamed parameter block in target network: module ' .. i .. ' ' .. tostring(torch.type(module)))
+            if sourceNetworkList[module.paramName] == nil then
+                print('no parameters found for ' .. module.paramName)
+            else
+                print('copying paramters for ' .. module.paramName)
+                module = sourceNetworkList[module.paramName]:clone()
+            end
+        end
+    end
+end
+
+local function nameLastModParams(network)
+    assert(network.paramName ~= nil, 'unnamed network')
+    local l = network:listModules()
+    local lastMod = l[#l]
+    lastMod.paramName = network.paramName .. '_' .. #l .. '_' .. torch.type(lastMod)
+end
+
 local function addConvElement(network,iChannels,oChannels,size,stride,padding)
     network:add(cudnn.SpatialConvolution(iChannels,oChannels,size,size,stride,stride,padding,padding))
-    if useBatchNorm then network:add(cudnn.SpatialBatchNormalization(oChannels,1e-3)) end
+    nameLastModParams(network)
+    network:add(cudnn.SpatialBatchNormalization(oChannels,1e-3))
+    nameLastModParams(network)
     network:add(makeReLU())
 end
 
 local function addLinearElement(network,iChannels,oChannels)
     network:add(nn.Linear(iChannels, oChannels))
-    if useBatchNorm then network:add(cudnn.BatchNormalization(oChannels, 1e-3)) end
+    nameLastModParams(network)
+    network:add(cudnn.BatchNormalization(oChannels, 1e-3))
+    nameLastModParams(network)
     network:add(makeReLU())
 end
 
 local function addUpConvElement(network,iChannels,oChannels,size,stride,padding,extra)
     network:add(cudnn.SpatialFullConvolution(iChannels,oChannels,size,size,stride,stride,padding,padding,extra,extra))
+    nameLastModParams(network)
     --network:add(nn.SpatialUpSamplingNearest(stride))
     --network:add(nn.SpatialConvolution(iChannels,oChannels,size,size,1,1,padding,padding))
-    if useBatchNorm then network:add(cudnn.SpatialBatchNormalization(oChannels,1e-3)) end
+    network:add(cudnn.SpatialBatchNormalization(oChannels,1e-3))
+    nameLastModParams(network)
     network:add(makeReLU())
 end
 
@@ -41,10 +108,14 @@ local function addResidualBlock(network,iChannels,oChannels,size,stride,padding)
     local s = nn.Sequential()
         
     s:add(cudnn.SpatialConvolution(iChannels,oChannels,size,size,stride,stride,padding,padding))
-    if useBatchNorm then s:add(cudnn.SpatialBatchNormalization(oChannels,1e-3)) end
+    nameLastModParams(network)
+    s:add(cudnn.SpatialBatchNormalization(oChannels,1e-3))
+    nameLastModParams(network)
     s:add(makeReLU())
     s:add(cudnn.SpatialConvolution(iChannels,oChannels,size,size,stride,stride,padding,padding))
-    if useBatchNorm then s:add(cudnn.SpatialBatchNormalization(oChannels,1e-3)) end
+    nameLastModParams(network)
+    s:add(cudnn.SpatialBatchNormalization(oChannels,1e-3))
+    nameLastModParams(network)
     
     if useResidualBlock then
         --local shortcut = nn.narrow(3, )
@@ -68,6 +139,7 @@ local function createVGG(opt)
     local vggIn = loadcaffe.load('models/VGG_ILSVRC_19_layers_deploy.prototxt',
                                  'models/VGG_ILSVRC_19_layers.caffemodel', 'nn'):float()
     local vggContentOut = nn.Sequential()
+    vggContentOut.paramName = 'VGG'
     
     local contentDepth = 9
     
@@ -80,6 +152,7 @@ local function createVGG(opt)
         local layerType = torch.type(layer)
         
         vggContentOut:add(layer)
+        nameLastModParams(vggContentOut)
     end
     
     vggIn = nil
@@ -89,6 +162,7 @@ end
 
 local function createGrayEncoder(opt)
     local encoder = nn.Sequential()
+    encoder.paramName = 'grayEncoder'
 
     addConvElement(encoder, 1, 64, 3, 2, 1) -- 112
     addConvElement(encoder, 64, 128, 3, 1, 1) -- 112
@@ -104,6 +178,7 @@ end
 
 local function createColorEncoder(opt)
     local colorEncoder = nn.Sequential()
+    colorEncoder.paramName = 'colorEncoder'
 
     addConvElement(colorEncoder, 3, 32, 3, 1, 1) -- 112
     
@@ -124,6 +199,7 @@ local function createColorEncoder(opt)
     addLinearElement(colorEncoder, 6272, 1024)
     
     colorEncoder:add(nn.Linear(1024, colorGuideSize))
+    nameLastModParams(colorEncoder)
     colorEncoder:add(nn.Tanh())
     
     return colorEncoder
@@ -131,6 +207,7 @@ end
 
 local function createGuideToFusion(opt)
     local guideToFusion = nn.Sequential()
+    guideToFusion.paramName = 'guideToFusion'
 
     addLinearElement(guideToFusion, colorGuideSize, 784)
     
@@ -146,6 +223,7 @@ end
 
 local function createDecoder(opt)
     local decoder = nn.Sequential()
+    decoder.paramName = 'decoder'
 
     addConvElement(decoder, 320, 128, 3, 1, 1) -- 28
     --addResidualBlock(decoder, 128, 128, 3, 1, 1)
@@ -156,6 +234,7 @@ local function createDecoder(opt)
     addUpConvElement(decoder, 64, 32, 3, 2, 1, 1) -- 112
     
     decoder:add(nn.SpatialConvolution(32, 3, 3, 3, 1, 1, 1, 1))
+    nameLastModParams(decoder)
     if opt.TVWeight > 0 then
         print('adding RGB TV loss')
         local tvModule = nn.TVLoss(opt.TVWeight, opt.batchSize):float()
@@ -244,6 +323,10 @@ local function createModel(opt)
     -- Create composite nets
     r.colorGuideNet = createColorGuideNet(opt, subnets)
     r.colorGuidePredictionNet = createColorGuidePredictionNet(opt, subnets)
+    
+    local pretrainedColorGuide = torch.load('pretrainedModels/transform1.t7')
+    
+    transferParams(pretrainedColorGuide, r.colorGuideNet)
     
     return r
 end

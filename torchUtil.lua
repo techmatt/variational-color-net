@@ -89,9 +89,9 @@ local function dumpGraph(graph, filename)
         print('module ' .. i .. ': ' .. moduleType)
         --print(module.mode)
         out:write(i .. splitter .. moduleType .. splitter)
-        out:write(trainingDesc(module.train) .. splitter)
-        out:write( getSize(module.output) .. splitter .. getQuartiles(module.output, 10))
-        out:write( getSize(module.gradInput) .. splitter .. getQuartiles(module.gradInput, 10))
+        --out:write(trainingDesc(module.train) .. splitter)
+        out:write( getSize(module.output) .. splitter .. getQuartiles(module.output, 10) .. splitter)
+        out:write( getSize(module.gradInput) .. splitter .. getQuartiles(module.gradInput, 10) .. splitter)
         out:write("\n")
         for a,b in pairs(module) do
             --if a == '_type' then print(a) print(b) end
