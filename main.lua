@@ -6,6 +6,7 @@ paths.dofile('globals.lua')
 local opts = require('opts')
 local util = require('util')
 local models = require('models')
+local modelsColorGuide = require('modelsColorGuide')
 local imageLoader = require('imageLoader')
 local train = require('train')
 
@@ -18,6 +19,7 @@ cutorch.setDevice(opt.GPU) -- by default, use GPU 1
 torch.manualSeed(opt.manualSeed)
 
 local model = models.createModel(opt)
+--local model = modelsColorGuide.createModel(opt)
 
 --local allImages = util.getFileListRecursive('/home/dritchie/mscoco/')
 --util.writeAllLines(opt.imageList, allImages)
