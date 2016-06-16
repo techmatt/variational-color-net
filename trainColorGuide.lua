@@ -44,36 +44,6 @@ local RGBTargets = torch.CudaTensor()
 local timer = torch.Timer()
 local dataTimer = torch.Timer()
 
-local function toCPUTensor(t)
-    return torch.FloatTensor(t:size()):copy(t)
-end
-
-local function yuv2lab(iCPU)
-    --local iCPU = toCPUTensor(i)
-    return image.rgb2lab( image.yuv2rgb(iCPU) )
-end
-
-local function lab2yuv(iCPU)
-    --local iCPU = toCPUTensor(i)
-    return image.rgb2yuv( image.lab2rgb(iCPU) )
-end
-
-local function predictionCorrectedRGB(YImageGPU, RGBImageGPU)
-    local YImage = toCPUTensor(YImageGPU)
-    local RGBImage = toCPUTensor(RGBImageGPU)
-    
-    YImage:add(0.5)
-    local YRepeated = torch.repeatTensor( YImage, 3, 1, 1 )
-    YRepeated[2]:zero()
-    YRepeated[3]:zero()
-    local luminance = yuv2lab(YRepeated)
-
-    local LABImage = image.rgb2lab(RGBImage)
-    local LABImage = image.scale( LABImage, YImage:size()[2], YImage:size()[3] )
-    
-    LABImage[1] = luminance[1]
-    return image.lab2rgb( LABImage )
-end
 
 -- 4. trainSuperBatch - Used by train() to train a superbatch.
 local function trainSuperBatch(model, imgLoader, opt, epoch)
@@ -128,7 +98,7 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
                 local predictionRGB = torchUtil.caffeDeprocess(prediction[1]:clone())
                 image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_predictedRGBSmall.jpg', predictionRGB)
                 
-                local predictionRGBCorrected = predictionCorrectedRGB(grayscaleInputs[1], predictionRGB)
+                local predictionRGBCorrected = torchUtil.predictionCorrectedRGB(grayscaleInputs[1], predictionRGB)
                 image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_predictedRGBBig.jpg', predictionRGBCorrected)
             end
         end
