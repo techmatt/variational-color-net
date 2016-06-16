@@ -3,18 +3,27 @@ require('nnModules')
 
 local useResidualBlock = true
 local useBatchNorm = true
-local colorGuideSize = 64
+local useLeakyReLU = true
+local colorGuideSize = 512
+
+local function makeReLU()
+    if useLeakyReLU then
+        return nn.LeakyReLU(true)
+    else
+        cudnn.ReLU(true)
+    end
+end
 
 local function addConvElement(network,iChannels,oChannels,size,stride,padding)
     network:add(cudnn.SpatialConvolution(iChannels,oChannels,size,size,stride,stride,padding,padding))
     if useBatchNorm then network:add(cudnn.SpatialBatchNormalization(oChannels,1e-3)) end
-    network:add(cudnn.ReLU(true))
+    network:add(makeReLU())
 end
 
 local function addLinearElement(network,iChannels,oChannels)
     network:add(nn.Linear(iChannels, oChannels))
     if useBatchNorm then network:add(cudnn.BatchNormalization(oChannels, 1e-3)) end
-    network:add(cudnn.ReLU(true))
+    network:add(makeReLU())
 end
 
 local function addUpConvElement(network,iChannels,oChannels,size,stride,padding,extra)
@@ -22,7 +31,7 @@ local function addUpConvElement(network,iChannels,oChannels,size,stride,padding,
     --network:add(nn.SpatialUpSamplingNearest(stride))
     --network:add(nn.SpatialConvolution(iChannels,oChannels,size,size,1,1,padding,padding))
     if useBatchNorm then network:add(cudnn.SpatialBatchNormalization(oChannels,1e-3)) end
-    network:add(cudnn.ReLU(true))
+    network:add(makeReLU())
 end
 
 local function addResidualBlock(network,iChannels,oChannels,size,stride,padding)
@@ -33,7 +42,7 @@ local function addResidualBlock(network,iChannels,oChannels,size,stride,padding)
         
     s:add(cudnn.SpatialConvolution(iChannels,oChannels,size,size,stride,stride,padding,padding))
     if useBatchNorm then s:add(cudnn.SpatialBatchNormalization(oChannels,1e-3)) end
-    s:add(cudnn.ReLU(true))
+    s:add(makeReLU())
     s:add(cudnn.SpatialConvolution(iChannels,oChannels,size,size,stride,stride,padding,padding))
     if useBatchNorm then s:add(cudnn.SpatialBatchNormalization(oChannels,1e-3)) end
     
@@ -47,7 +56,7 @@ local function addResidualBlock(network,iChannels,oChannels,size,stride,padding)
             :add(nn.CAddTable(true))
         network:add(block)
     else
-        s:add(nn.ReLU(true))
+        s:add(makeReLU())
         network:add(s)
     end
 end
@@ -192,6 +201,26 @@ local function createColorGuideNet(opt, subnets)
     return colorGuideNet
 end
 
+local function createColorGuidePredictionNet(opt, subnets)
+    -- Input nodes
+    local grayscaleImage = nn.Identity()():annotate({name = 'grayscaleImage'})
+    local targetRGB = nn.Identity()():annotate({name = 'targetRGB'})
+    
+    -- Intermediates
+    local grayEncoderOutput = subnets.grayEncoder(grayscaleImage):annotate({name = 'grayEncoderOutput'})
+    local colorEncoderOutput = subnets.colorEncoder(targetRGB):annotate({name = 'colorEncoderOutput'})
+    local guideToFusionOutput = subnets.guideToFusion(colorEncoderOutput):annotate({name = 'guideToFusionOutput'})
+    local fusionOutput = nn.JoinTable(1, 3)({grayEncoderOutput, guideToFusionOutput}):annotate({name = 'fusionOutput'})
+    local decoderOutput = subnets.decoder(fusionOutput):annotate({name = 'decoderOutput'})
+    
+    -- Full training network including all loss functions
+    local colorGuidePredictionNet = nn.gModule({grayscaleImage, targetRGB}, {decoderOutput})
+
+    cudnn.convert(colorGuidePredictionNet, cudnn)
+    colorGuidePredictionNet = colorGuidePredictionNet:cuda()
+    return colorGuidePredictionNet
+end
+
 local function createModel(opt)
     print('Creating model')
 
@@ -208,11 +237,13 @@ local function createModel(opt)
     }
     r.grayEncoder = subnets.grayEncoder
     r.colorEncoder = subnets.colorEncoder
+    r.guideToFusion = subnets.guideToFusion
     r.decoder = subnets.decoder
     r.vggNet = subnets.vggNet  -- Needs to be exposed to gradients be zeroed
 
     -- Create composite nets
     r.colorGuideNet = createColorGuideNet(opt, subnets)
+    r.colorGuidePredictionNet = createColorGuidePredictionNet(opt, subnets)
     
     return r
 end

@@ -8,7 +8,8 @@ local util = require('util')
 local models = require('models')
 local modelsColorGuide = require('modelsColorGuide')
 local imageLoader = require('imageLoader')
-local train = require('train')
+--local train = require('train')
+local train = require('trainColorGuide')
 
 cudnn.benchmark = true
 torch.setdefaulttensortype('torch.FloatTensor')
@@ -18,8 +19,8 @@ local opt = opts.parse(arg)
 cutorch.setDevice(opt.GPU) -- by default, use GPU 1
 torch.manualSeed(opt.manualSeed)
 
-local model = models.createModel(opt)
---local model = modelsColorGuide.createModel(opt)
+--local model = models.createModel(opt)
+local model = modelsColorGuide.createModel(opt)
 
 --local allImages = util.getFileListRecursive('/home/dritchie/mscoco/')
 --util.writeAllLines(opt.imageList, allImages)
