@@ -9,7 +9,8 @@ local models = require('models')
 local modelsColorGuide = require('modelsColorGuide')
 local imageLoader = require('imageLoader')
 --local train = require('train')
-local train = require('trainColorGuide')
+--local train = require('trainColorGuide')
+local train = require('trainColorGuesser')
 
 cudnn.benchmark = true
 torch.setdefaulttensortype('torch.FloatTensor')

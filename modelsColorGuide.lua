@@ -7,7 +7,7 @@ local transferParams = torchUtil.transferParams
 
 local useResidualBlock = true
 local useLeakyReLU = true
-local colorGuideSize = 512
+local colorGuideSize = 128
 
 local function makeReLU()
     if useLeakyReLU then
@@ -48,16 +48,17 @@ local function addResidualBlock(network,iChannels,oChannels,size,stride,padding)
     --addConvElement(network,iChannels,oChannels,size,stride,padding)
 
     local s = nn.Sequential()
-        
+    s.paramName = network.paramName .. '_ResBlock' .. #(network:listModules())
+    
     s:add(cudnn.SpatialConvolution(iChannels,oChannels,size,size,stride,stride,padding,padding))
-    nameLastModParams(network)
+    nameLastModParams(s)
     s:add(cudnn.SpatialBatchNormalization(oChannels,1e-3))
-    nameLastModParams(network)
+    nameLastModParams(s)
     s:add(makeReLU())
     s:add(cudnn.SpatialConvolution(iChannels,oChannels,size,size,stride,stride,padding,padding))
-    nameLastModParams(network)
+    nameLastModParams(s)
     s:add(cudnn.SpatialBatchNormalization(oChannels,1e-3))
-    nameLastModParams(network)
+    nameLastModParams(s)
     
     if useResidualBlock then
         --local shortcut = nn.narrow(3, )
@@ -242,6 +243,84 @@ local function createColorGuidePredictionNet(opt, subnets)
     return colorGuidePredictionNet
 end
 
+
+local function createGuesserEncoder(opt)
+    local guesserEncoder = nn.Sequential()
+    guesserEncoder.paramName = 'guesserEncoder'
+
+    addConvElement(guesserEncoder, 1, 16, 7, 1, 1) -- 224
+    
+    addConvElement(guesserEncoder, 16, 32, 3, 2, 1) -- 112
+    addConvElement(guesserEncoder, 32, 64, 3, 1, 1) -- 112
+    
+    addConvElement(guesserEncoder, 64, 128, 3, 2, 1) -- 56
+    addConvElement(guesserEncoder, 128, 128, 3, 1, 1) -- 56
+    
+    addResidualBlock(guesserEncoder, 128, 128, 3, 1, 1)
+    addResidualBlock(guesserEncoder, 128, 128, 3, 1, 1)
+    addResidualBlock(guesserEncoder, 128, 128, 3, 1, 1)
+    --addResidualBlock(guesserEncoder, 128, 128, 3, 1, 1)
+    --addResidualBlock(guesserEncoder, 128, 128, 3, 1, 1)
+    
+    addConvElement(guesserEncoder, 128, 256, 3, 2, 1) -- 28
+    addConvElement(guesserEncoder, 256, 256, 3, 1, 1) -- 28
+    
+    addConvElement(guesserEncoder, 256, 64, 3, 2, 1) -- 14
+    addConvElement(guesserEncoder, 64, 32, 3, 1, 1) -- 14
+    
+    guesserEncoder:add(nn.Reshape(6272, true))
+    addLinearElement(guesserEncoder, 6272, 2048)
+    addLinearElement(guesserEncoder, 2048, 2048)
+    
+    guesserEncoder:add(nn.Linear(2048, colorGuideSize))
+    nameLastModParams(guesserEncoder)
+    
+    return guesserEncoder
+end
+
+local function createColorGuesserNet(opt, subnets)
+    -- Input nodes
+    local grayscaleImage = nn.Identity()():annotate({name = 'grayscaleImage'})
+    local targetColorGuide = nn.Identity()():annotate({name = 'targetColorGuide'})
+    
+    -- Intermediates
+    local guesserEncoderOutput = subnets.guesserEncoder(grayscaleImage):annotate({name = 'guesserEncoderOutput'})
+    
+    -- Losses
+    print('adding guide loss')
+    local guideLoss = nn.MSECriterion()({guesserEncoderOutput, targetColorGuide}):annotate({name = 'guideLoss'})
+    
+    -- Full training network including all loss functions
+    local colorGuesserNet = nn.gModule({grayscaleImage, targetColorGuide}, {guideLoss})
+
+    cudnn.convert(colorGuesserNet, cudnn)
+    colorGuesserNet = colorGuesserNet:cuda()
+    graph.dot(colorGuesserNet.fg, 'colorGuesserForward', 'colorGuesserForward')
+    --graph.dot(colorGuideNet.bg, 'colorGuideBackward', 'graphBackward')
+    return colorGuesserNet
+end
+
+local function createFinalColorizerNet(opt, subnets)
+    -- Input nodes
+    local grayscaleImage = nn.Identity()():annotate({name = 'grayscaleImage'})
+    
+    -- Intermediates
+    local guesserEncoderOutput = subnets.guesserEncoder(grayscaleImage):annotate({name = 'guesserEncoderOutput'})
+    local guideToFusionOutput = subnets.guideToFusion(guesserEncoderOutput):annotate({name = 'guideToFusionOutput'})
+    local grayEncoderOutput = subnets.grayEncoder(grayscaleImage):annotate({name = 'grayEncoderOutput'})
+    local fusionOutput = nn.JoinTable(1, 3)({grayEncoderOutput, guideToFusionOutput}):annotate({name = 'fusionOutput'})
+    local decoderOutput = subnets.decoder(fusionOutput):annotate({name = 'decoderOutput'})
+    
+    -- Full training network including all loss functions
+    local finalColorizerNet = nn.gModule({grayscaleImage}, {decoderOutput})
+
+    cudnn.convert(finalColorizerNet, cudnn)
+    finalColorizerNet = finalColorizerNet:cuda()
+    graph.dot(finalColorizerNet.fg, 'finalColorizerForward', 'finalColorizerForward')
+    --graph.dot(colorGuideNet.bg, 'colorGuideBackward', 'graphBackward')
+    return finalColorizerNet
+end
+
 local function createModel(opt)
     print('Creating model')
 
@@ -254,22 +333,29 @@ local function createModel(opt)
         colorEncoder = createColorEncoder(opt),
         guideToFusion = createGuideToFusion(opt),
         decoder = createDecoder(opt),
+        guesserEncoder = createGuesserEncoder(opt),
         vggNet = createVGG(opt)
     }
     r.grayEncoder = subnets.grayEncoder
     r.colorEncoder = subnets.colorEncoder
     r.guideToFusion = subnets.guideToFusion
     r.decoder = subnets.decoder
+    r.guesserEncoder = subnets.guesserEncoder
     r.vggNet = subnets.vggNet  -- Needs to be exposed to gradients be zeroed
 
     -- Create composite nets
     r.colorGuideNet = createColorGuideNet(opt, subnets)
     r.colorGuidePredictionNet = createColorGuidePredictionNet(opt, subnets)
     
-    --local pretrainedColorGuide = torch.load('pretrainedModels/transform1.t7')
-    --pretrainedColorGuide:clearState()
-    --transferParams(pretrainedColorGuide, r.colorGuideNet)
+    r.colorGuesserNet = createColorGuesserNet(opt, subnets)
+    r.finalColorizerNet = createFinalColorizerNet(opt, subnets)
     
+    local pretrainedColorGuide = torch.load('pretrainedModels/colorGuide128.t7')
+    pretrainedColorGuide:clearState()
+    transferParams(pretrainedColorGuide, r.colorGuideNet)
+    transferParams(pretrainedColorGuide, r.colorGuidePredictionNet)
+    transferParams(pretrainedColorGuide, r.finalColorizerNet)
+        
     return r
 end
 

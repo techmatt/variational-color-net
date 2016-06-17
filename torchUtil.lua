@@ -271,6 +271,7 @@ local function moduelHasParams(module)
        moduleType == 'nn.TVLoss' or
        moduleType == 'nn.ModuleFromCriterion' or
        moduleType == 'nn.MulConstant' or
+       moduleType == 'nn.CAddTable' or
        moduleType == 'nn.ConcatTable' then
        return false
     end

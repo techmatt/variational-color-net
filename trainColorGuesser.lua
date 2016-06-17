@@ -14,7 +14,7 @@ local optimState = {
 local function paramsForEpoch(epoch)
     local regimes = {
         -- start, end,    LR,   WD,
-        {  1,     1,   1e-2,   0 },
+        {  1,     1,   1e-3,   0 },
         {  2,     2,   1e-4,   0 },
         {  3,     3,   5e-4,   0 },
         {  4,     10,   4e-5,   0 },
@@ -76,18 +76,18 @@ local function predictionCorrectedRGB(YImageGPU, RGBImageGPU)
 end
 
 -- 4. trainSuperBatch - Used by train() to train a superbatch.
-local function trainSuperBatch(model, imgLoader, opt, epoch)
+local function trainColorGuesserSuperBatch(model, imgLoader, opt, epoch)
     
-    local parameters, gradParameters = model.colorGuideNet:getParameters()
+    local parameters, gradParameters = model.colorGuesserNet:getParameters()
     
     cutorch.synchronize()
 
     local dataLoadingTime = 0
     timer:reset()
 
-    local pixelRGBLossSum, contentLossSum, totalLossSum = 0, 0, 0
+    local guideLossSum, totalLossSum = 0, 0
     local feval = function(x)
-        model.colorGuideNet:zeroGradParameters()
+        model.colorGuesserNet:zeroGradParameters()
         
         for superBatch = 1, opt.superBatches do
             local loadTimeStart = dataTimer:time().real
@@ -99,41 +99,54 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             grayscaleInputs:resize(batch.grayscaleInputs:size()):copy(batch.grayscaleInputs)
             RGBTargets:resize(batch.RGBTargets:size()):copy(batch.RGBTargets)
             
-            local contentTargets = model.vggNet:forward(RGBTargets):clone()
+            model.colorEncoder:evaluate()
+            local colorGuideTargets = model.colorEncoder:forward(RGBTargets):clone()
+            model.colorEncoder:training()
             
-            local outputLoss = model.colorGuideNet:forward({grayscaleInputs, RGBTargets, contentTargets})
+            local outputLoss = model.colorGuesserNet:forward({grayscaleInputs, colorGuideTargets})
             
-            local pixelRGBLoss = outputLoss[1][1]
-            local contentLoss = outputLoss[2][1]
+            local guideLoss = outputLoss[1]
             
-            pixelRGBLossSum = pixelRGBLossSum + pixelRGBLoss
-            contentLossSum = contentLossSum + contentLoss
-            totalLossSum = totalLossSum + pixelRGBLoss + contentLoss
+            guideLossSum = guideLossSum + guideLoss
+            totalLossSum = totalLossSum + guideLoss
             
-            model.colorGuideNet:backward({grayscaleInputs, RGBTargets, contentTargets}, outputLoss)
+            model.colorGuesserNet:backward({grayscaleInputs, colorGuideTargets}, outputLoss)
             
             if superBatch == 1 and debugBatchIndices[totalBatchCount] then
-                torchUtil.dumpGraph(model.colorGuideNet, opt.outDir .. 'graphDump' .. totalBatchCount .. '.csv')
+                torchUtil.dumpGraph(model.colorGuesserNet, opt.outDir .. 'graphDump' .. totalBatchCount .. '.csv')
             end
 
             -- Output test samples
             if superBatch == 1 and totalBatchCount % 100 == 0 then
-                
+            
+                model.finalColorizerNet:evaluate()
                 model.colorGuidePredictionNet:evaluate()
-                
+            
                 -- Save ground truth RGB image
                 local inClone = RGBTargets[1]:clone()
                 inClone = torchUtil.caffeDeprocess(inClone)
                 image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_groundTruth.jpg', inClone)
                 
-                local prediction = model.colorGuidePredictionNet:forward({grayscaleInputs, RGBTargets})
+                collectgarbage()
                 
-                local predictionRGB = torchUtil.caffeDeprocess(prediction[1]:clone())
-                image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_predictedRGBSmall.jpg', predictionRGB)
+                local predictedGuidePrediction = model.finalColorizerNet:forward(grayscaleInputs)
                 
-                local predictionRGBCorrected = predictionCorrectedRGB(grayscaleInputs[1], predictionRGB)
-                image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_predictedRGBBig.jpg', predictionRGBCorrected)
+                local predictedGuideRGB = torchUtil.caffeDeprocess(predictedGuidePrediction[1]:clone())
+                image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_predictedGuideRGBSmall.jpg', predictedGuideRGB)
                 
+                local predictedGuideRGBCorrected = predictionCorrectedRGB(grayscaleInputs[1], predictedGuideRGB)
+                image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_predictedGuideRGBBig.jpg', predictedGuideRGBCorrected)
+                
+                
+                local trueGuidePrediction = model.colorGuidePredictionNet:forward({grayscaleInputs, RGBTargets})
+                
+                local trueGuideRGB = torchUtil.caffeDeprocess(trueGuidePrediction[1]:clone())
+                image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_trueGuideRGBSmall.jpg', trueGuideRGB)
+                
+                local trueGuideRGBCorrected = predictionCorrectedRGB(grayscaleInputs[1], trueGuideRGB)
+                image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_trueGuideRGBBig.jpg', trueGuideRGBCorrected)
+                
+                model.finalColorizerNet:training()
                 model.colorGuidePredictionNet:training()
             end
         end
@@ -148,15 +161,13 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
     batchNumber = batchNumber + 1
     
     epochStats.total = epochStats.total + totalLossSum
-    epochStats.pixelRGB = epochStats.pixelRGB + pixelRGBLossSum
-    epochStats.content = epochStats.content + contentLossSum
+    epochStats.guide = epochStats.guide + guideLossSum
     
     print(('Epoch: [%d][%d/%d]\tTime %.3f Err %.4f LR %.0e DataLoadingTime %.3f'):format(
         epoch, batchNumber, opt.epochSize, timer:time().real, totalLossSum,
         optimState.learningRate, dataLoadingTime))
         
-    print(string.format('  RGB loss: %f', pixelRGBLossSum))
-    print(string.format('  Content loss: %f', contentLossSum))
+    print(string.format('  Guide loss: %f', guideLossSum))
     
     dataTimer:reset()
     totalBatchCount = totalBatchCount + 1
@@ -182,8 +193,9 @@ local function train(model, imgLoader, opt, epoch)
     model.guideToFusion:clearState()
     model.decoder:clearState()
     model.vggNet:clearState()
+    model.guesserEncoder:clearState()
     
-    torch.save(opt.outDir .. 'models/colorGuide' .. epoch .. '.t7', model.colorGuideNet)
+    torch.save(opt.outDir .. 'models/colorGuesser' .. epoch .. '.t7', model.colorGuesserNet)
     
     print('==> doing epoch on training data:')
     print("==> online epoch # " .. epoch)
@@ -198,29 +210,26 @@ local function train(model, imgLoader, opt, epoch)
     cutorch.synchronize()
 
     -- set the dropouts to training mode
-    model.colorGuideNet:training()
+    model.colorGuesserNet:training()
     
     local tm = torch.Timer()
     
     epochStats.total = 0
-    epochStats.pixelRGB = 0
-    epochStats.content = 0
+    epochStats.guide = 0
     
     for i = 1, opt.epochSize do
-        trainSuperBatch(model, imgLoader, opt, epoch)
+        trainColorGuesserSuperBatch(model, imgLoader, opt, epoch)
     end
     
     cutorch.synchronize()
 
     local scaleFactor = 1.0 / (opt.batchSize * opt.superBatches * opt.epochSize)
     epochStats.total = epochStats.total * scaleFactor
-    epochStats.pixelRGB = epochStats.pixelRGB * scaleFactor
-    epochStats.content = epochStats.content * scaleFactor
+    epochStats.guide = epochStats.guide * scaleFactor
     
     trainLogger:add{
         ['total loss (train set)'] = epochStats.total,
-        ['RGB loss (train set)'] = epochStats.pixelRGB,
-        ['content loss (train set)'] = epochStats.content
+        ['guide loss (train set)'] = epochStats.guide
     }
     print(string.format('Epoch: [%d][TRAINING SUMMARY] Total Time(s): %.2f\t'
         .. 'average loss (per batch): %.2f \t '
