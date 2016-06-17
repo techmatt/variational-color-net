@@ -345,6 +345,60 @@ local function nameLastModParams(network)
     lastMod.paramName = network.paramName .. '_' .. #l .. '_' .. torch.type(lastMod)
 end
 
+
+
+local function toCPUTensor(t)
+    return torch.FloatTensor(t:size()):copy(t)
+end
+
+local function yuv2lab(iCPU)
+    --local iCPU = toCPUTensor(i)
+    return image.rgb2lab( image.yuv2rgb(iCPU) )
+end
+
+local function lab2yuv(iCPU)
+    --local iCPU = toCPUTensor(i)
+    return image.rgb2yuv( image.lab2rgb(iCPU) )
+end
+
+local function predictionABToRGB(YImageGPU, ABImageGPU)
+    local YImage = toCPUTensor(YImageGPU)
+    local ABImage = toCPUTensor(ABImageGPU)
+    YImage:add(0.5)
+    ABImage:mul(100.0)
+    local YRepeated = torch.repeatTensor( YImage, 3, 1, 1 )
+    YRepeated[2]:zero()
+    YRepeated[3]:zero()
+    local luminance = yuv2lab(YRepeated)
+
+    local emptyChannel = ABImage[{{1},{},{}}]:float()
+
+    local I = torch.cat(emptyChannel, ABImage, 1)
+                        
+    local O = image.scale( I, YImage:size()[2], YImage:size()[3] )
+    O[1] = luminance[1]
+    return image.lab2rgb( O )
+end
+
+local function predictionCorrectedRGB(YImageGPU, RGBImageGPU)
+    local YImage = toCPUTensor(YImageGPU)
+    local RGBImage = toCPUTensor(RGBImageGPU)
+    
+    YImage:add(0.5)
+    local YRepeated = torch.repeatTensor( YImage, 3, 1, 1 )
+    YRepeated[2]:zero()
+    YRepeated[3]:zero()
+    local luminance = yuv2lab(YRepeated)
+
+    local LABImage = image.rgb2lab(RGBImage)
+    local LABImage = image.scale( LABImage, YImage:size()[2], YImage:size()[3] )
+    
+    LABImage[1] = luminance[1]
+    return image.lab2rgb( LABImage )
+end
+
+
+
 return {
     getSize = getSize,
     describeNet = describeNet,
@@ -357,5 +411,7 @@ return {
     moduelHasParams = moduelHasParams,
     transferParams = transferParams,
     nameLastModParams = nameLastModParams,
+    predictionCorrectedRGB = predictionCorrectedRGB,
+    predictionABToRGB = predictionABToRGB
 }
 

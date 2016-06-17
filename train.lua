@@ -53,62 +53,12 @@ local epochStats = {}
 -- GPU inputs (preallocate)
 local grayscaleInputs = torch.CudaTensor()
 local RGBTargets = torch.CudaTensor()
-local ABTargets = torch.CudaTensor()
 local classLabels = torch.CudaTensor()
 local randomness = torch.CudaTensor()
 
 local timer = torch.Timer()
 local dataTimer = torch.Timer()
 
-local function toCPUTensor(t)
-    return torch.FloatTensor(t:size()):copy(t)
-end
-
-local function yuv2lab(iCPU)
-    --local iCPU = toCPUTensor(i)
-    return image.rgb2lab( image.yuv2rgb(iCPU) )
-end
-
-local function lab2yuv(iCPU)
-    --local iCPU = toCPUTensor(i)
-    return image.rgb2yuv( image.lab2rgb(iCPU) )
-end
-
-local function predictionABToRGB(YImageGPU, ABImageGPU)
-    local YImage = toCPUTensor(YImageGPU)
-    local ABImage = toCPUTensor(ABImageGPU)
-    YImage:add(0.5)
-    ABImage:mul(100.0)
-    local YRepeated = torch.repeatTensor( YImage, 3, 1, 1 )
-    YRepeated[2]:zero()
-    YRepeated[3]:zero()
-    local luminance = yuv2lab(YRepeated)
-
-    local emptyChannel = ABImage[{{1},{},{}}]:float()
-
-    local I = torch.cat(emptyChannel, ABImage, 1)
-                        
-    local O = image.scale( I, YImage:size()[2], YImage:size()[3] )
-    O[1] = luminance[1]
-    return image.lab2rgb( O )
-end
-
-local function predictionCorrectedRGB(YImageGPU, RGBImageGPU)
-    local YImage = toCPUTensor(YImageGPU)
-    local RGBImage = toCPUTensor(RGBImageGPU)
-    
-    YImage:add(0.5)
-    local YRepeated = torch.repeatTensor( YImage, 3, 1, 1 )
-    YRepeated[2]:zero()
-    YRepeated[3]:zero()
-    local luminance = yuv2lab(YRepeated)
-
-    local LABImage = image.rgb2lab(RGBImage)
-    local LABImage = image.scale( LABImage, YImage:size()[2], YImage:size()[3] )
-    
-    LABImage[1] = luminance[1]
-    return image.lab2rgb( LABImage )
-end
 
 -- 4. trainSuperBatch - Used by train() to train a superbatch.
 local function trainSuperBatch(model, imgLoader, opt, epoch)
@@ -120,7 +70,7 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
     local dataLoadingTime = 0
     timer:reset()
 
-    local classLossSum, pixelRGBLossSum, pixelABLossSum, contentLossSum, kldLossSum, totalLossSum = 0, 0, 0, 0, 0, 0
+    local classLossSum, pixelRGBLossSum, contentLossSum, kldLossSum, totalLossSum = 0, 0, 0, 0, 0
     local top1, top5 = 0, 0
     local feval = function(x)
         model.trainingNet:zeroGradParameters()
@@ -142,33 +92,30 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             -- transfer over to GPU
             grayscaleInputs:resize(batch.grayscaleInputs:size()):copy(batch.grayscaleInputs)
             RGBTargets:resize(batch.RGBTargets:size()):copy(batch.RGBTargets)
-            ABTargets:resize(batch.ABTargets:size()):copy(batch.ABTargets)
             classLabels:resize(batch.classLabels:size()):copy(batch.classLabels)
             randomness:resize(randomnessCPU:size()):copy(randomnessCPU)
         
             local contentTargets = model.vggNet:forward(RGBTargets):clone()
             
-            local outputLoss = model.trainingNet:forward({grayscaleInputs, randomness, ABTargets, RGBTargets, contentTargets, classLabels})
+            local outputLoss = model.trainingNet:forward({grayscaleInputs, randomness, RGBTargets, contentTargets, classLabels})
             
             
             local classLoss = outputLoss[1][1]
-            local pixelABLoss = outputLoss[2][1]
-            local pixelRGBLoss = outputLoss[3][1]
-            local contentLoss = outputLoss[4][1]
-            local kldLoss = outputLoss[5][1]
+            local pixelRGBLoss = outputLoss[2][1]
+            local contentLoss = outputLoss[3][1]
+            local kldLoss = outputLoss[4][1]
             
             classLossSum = classLossSum + classLoss
-            pixelABLossSum = pixelABLossSum + pixelABLoss
             pixelRGBLossSum = pixelRGBLossSum + pixelRGBLoss
             contentLossSum = contentLossSum + contentLoss
             kldLossSum = kldLossSum + kldLoss
-            totalLossSum = totalLossSum + classLoss + pixelABLoss + pixelRGBLoss + contentLoss + kldLoss
+            totalLossSum = totalLossSum + classLoss + pixelRGBLoss + contentLoss + kldLoss
             -- Check nans
             assert(totalLossSum == totalLossSum, 'NaN in loss!')
             
             local classProbabilities = model.classProbabilities.data.module.output
             
-            model.trainingNet:backward({grayscaleInputs, randomness, ABTargets, RGBTargets, contentTargets, classLabels}, outputLoss)
+            model.trainingNet:backward({grayscaleInputs, randomness, RGBTargets, contentTargets, classLabels}, outputLoss)
             
             if superBatch == 1 then
                 if debugBatchIndices[totalBatchCount] then
@@ -211,16 +158,13 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
                 -- Save predicted images
                 for testSampleIndex = 1, opt.numTestSamples do
                     local prediction = model.predictionNet:forward({grayscaleInputs, randomness})
-                    local predictionAB = prediction[1][testSampleIndex]:clone()
-                    local predictionRGB = torchUtil.caffeDeprocess(prediction[2][testSampleIndex]:clone())
+                    local predictionRGB = torchUtil.caffeDeprocess(prediction[testSampleIndex]:clone())
                     
                     image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_sample' .. testSampleIndex .. '_predictedRGBDebug.jpg', predictionRGB)
                     
-                    local predictionAB = predictionABToRGB(grayscaleInputs[1], predictionAB)
-                    local predictionRGB = predictionCorrectedRGB(grayscaleInputs[1], predictionRGB)
+                    local predictionRGB = torchUtil.predictionCorrectedRGB(grayscaleInputs[1], predictionRGB)
                     
                     image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_sample' .. testSampleIndex .. '_predictedRGB.jpg', predictionRGB)
-                    image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_sample' .. testSampleIndex .. '_predictedAB.jpg', predictionAB)
                 end
             end
         end
@@ -236,7 +180,6 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
     
     epochStats.total = epochStats.total + totalLossSum
     epochStats.class = epochStats.class + classLossSum
-    epochStats.pixelAB = epochStats.pixelAB + pixelABLossSum
     epochStats.pixelRGB = epochStats.pixelRGB + pixelRGBLossSum
     epochStats.content = epochStats.content + contentLossSum
     epochStats.kld = epochStats.kld + kldLossSum
@@ -251,7 +194,6 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
     print(string.format('  Top 1 accuracy: %f%%', top1))
     print(string.format('  Top 5 accuracy: %f%%', top5))
     print(string.format('  Class loss: %f', classLossSum))
-    print(string.format('  AB loss: %f', pixelABLossSum))
     print(string.format('  RGB loss: %f', pixelRGBLossSum))
     print(string.format('  Content loss: %f', contentLossSum))
     print(string.format('  KLD loss: %f', kldLossSum))
@@ -390,7 +332,6 @@ local function train(model, imgLoader, opt, epoch)
     
     epochStats.total = 0
     epochStats.class = 0
-    epochStats.pixelAB = 0
     epochStats.pixelRGB = 0
     epochStats.content = 0
     epochStats.kld = 0
@@ -408,7 +349,6 @@ local function train(model, imgLoader, opt, epoch)
     local scaleFactor = 1.0 / (opt.batchSize * opt.superBatches * opt.epochSize)
     epochStats.total = epochStats.total * scaleFactor
     epochStats.class = epochStats.class * scaleFactor
-    epochStats.pixelAB = epochStats.pixelAB * scaleFactor
     epochStats.pixelRGB = epochStats.pixelRGB * scaleFactor
     epochStats.content = epochStats.content * scaleFactor
     epochStats.kld = epochStats.kld * scaleFactor
@@ -417,7 +357,6 @@ local function train(model, imgLoader, opt, epoch)
         ['total loss (train set)'] = epochStats.total,
         ['class loss (train set)'] = epochStats.class,
         ['RGB loss (train set)'] = epochStats.pixelRGB,
-        ['AB loss (train set)'] = epochStats.pixelAB,
         ['content loss (train set)'] = epochStats.content,
         ['KLD loss (train set)'] = epochStats.kld,
     }

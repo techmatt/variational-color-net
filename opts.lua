@@ -35,7 +35,7 @@ function M.parse(arg)
     cmd:option('-epochCount',      100,    'Number of total epochs to run')
     cmd:option('-epochSize',       5000, 'Number of batches per epoch')
     cmd:option('-epochNumber',     1,     'Manual epoch number (useful on restarts)')
-    cmd:option('-numTestSamples',  1, 'Number of test samples to render periodically during training')
+    cmd:option('-numTestSamples',  4, 'Number of test samples to render periodically during training')
     
     ------------- Data options ------------------------
     cmd:option('-nDonkeys',        8, 'number of donkeys to initialize (data loading threads)')
@@ -46,6 +46,8 @@ function M.parse(arg)
     if not opt.useRandomness then opt.KLDWeight = 0.00001 end -- cannot be 0 because of how backprop works
 
     assert(opt.numTestSamples <= opt.batchSize, 'numTestSamples must not exceed batchSize')
+
+    if not opt.useRandomness then opt.numTestSamples = 1 end
     
     return opt
 end

@@ -239,9 +239,8 @@ local function createPredictionNet(opt, subnets)
     local sample = subnets.reparameterizer({params, randomness}):annotate({name = 'sample'})
     local decoderOutput = subnets.decoder(sample):annotate({name = 'decoderOutput'})
     local RGBOutput = subnets.decoderToRGB(decoderOutput):annotate({name = 'RGBOutput'})
-    local ABOutput = subnets.decoderToAB(decoderOutput):annotate({name = 'ABOutput'})
 
-    local predictionNet = nn.gModule({grayscaleImage, randomness}, {ABOutput, RGBOutput})
+    local predictionNet = nn.gModule({grayscaleImage, randomness}, {RGBOutput})
     cudnn.convert(predictionNet, cudnn)
     predictionNet = predictionNet:cuda()
     return predictionNet
@@ -252,7 +251,6 @@ local function createTrainingNet(opt, subnets)
     local grayscaleImage = nn.Identity()():annotate({name = 'grayscaleImage'})
     local randomness = nn.Identity()():annotate({name = 'randomness'})
     local targetRGB = nn.Identity()():annotate({name = 'targetRGB'})
-    local targetAB = nn.Identity()():annotate({name = 'targetAB'})
     local targetContent = nn.Identity()():annotate({name = 'targetContent'})
     local targetCategories = nn.Identity()():annotate({name = 'targetCategories'}) 
 
@@ -267,7 +265,6 @@ local function createTrainingNet(opt, subnets)
     local sample = subnets.reparameterizer({params, randomness}):annotate({name = 'sample'})
     local decoderOutput = subnets.decoder(sample):annotate({name = 'decoderOutput'})
     local RGBOutput = subnets.decoderToRGB(decoderOutput):annotate({name = 'RGBOutput'})
-    local ABOutput = subnets.decoderToAB(decoderOutput):annotate({name = 'ABOutput'})
     
     -- Losses
     
@@ -278,9 +275,6 @@ local function createTrainingNet(opt, subnets)
     
     print('adding pixel RGB loss')
     local pixelRGBLoss = nn.MSECriterion()({RGBOutput, targetRGB}):annotate({name = 'pixelRGBLoss'})
-    
-    print('adding pixel AB loss')
-    local pixelABLoss = nn.MSECriterion()({ABOutput, targetAB}):annotate({name = 'pixelABLoss'})
 
     print('adding content loss')
     local perceptualContent = subnets.vggNet(RGBOutput):annotate({name = 'perceptualContent'})
@@ -291,13 +285,12 @@ local function createTrainingNet(opt, subnets)
     
     local classLosMul = nn.MulConstant(opt.classWeight, true)(classLoss)
     local pixelRGBLossMul = nn.MulConstant(opt.pixelRGBWeight, true)(pixelRGBLoss)
-    local pixelABLossMul = nn.MulConstant(opt.pixelLABWeight, true)(pixelABLoss)
     local contentLossMul = nn.MulConstant(opt.contentWeight, true)(contentLoss)
     local kldLossMul = nn.MulConstant(opt.KLDWeight, true)(kldLoss)
 
     -- Full training network including all loss functions
-    local trainingNet = nn.gModule({grayscaleImage, randomness, targetAB, targetRGB, targetContent, targetCategories},
-        {classLosMul, pixelABLossMul, pixelRGBLossMul, contentLossMul, kldLossMul})
+    local trainingNet = nn.gModule({grayscaleImage, randomness, targetRGB, targetContent, targetCategories},
+        {classLosMul, pixelRGBLossMul, contentLossMul, kldLossMul})
 
     cudnn.convert(trainingNet, cudnn)
     trainingNet = trainingNet:cuda()
