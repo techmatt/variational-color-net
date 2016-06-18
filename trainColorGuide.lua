@@ -2,7 +2,7 @@
 local imageLoader = require('imageLoader')
 local torchUtil = require('torchUtil')
 
-local debugBatchIndices = {[500]=true, [5000]=true, [20000]=true}
+local debugBatchIndices = {[500]=true, [6000]=true, [20000]=true}
 -- local debugBatchIndices = {[5]=true}
 --local debugBatchIndices = {}
 
@@ -14,10 +14,10 @@ local optimState = {
 local function paramsForEpoch(epoch)
     local regimes = {
         -- start, end,    LR,   WD,
-        {  1,     1,   1e-2,   0 },
-        {  2,     2,   1e-4,   0 },
-        {  3,     3,   5e-4,   0 },
-        {  4,     10,   4e-5,   0 },
+        {  1,     1,   1e-1,   0 },
+        {  2,     2,   1e-2,   0 },
+        {  3,     5,   1e-3,   0 },
+        {  6,     10,   5e-4,   0 },
         { 11,     20,   2e-5,   0 },
         { 21,     30,   1e-5,   0 },
         { 31,     40,   5e-6,   0 },

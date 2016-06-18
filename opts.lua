@@ -12,7 +12,7 @@ function M.parse(arg)
     cmd:option('-outBaseDir', 'out', 'TODO')
     cmd:option('-imageListBase', 'data/places', 'TODO')
     cmd:option('-batchSize', 20, 'mini-batch size (1 = pure stochastic)')
-    cmd:option('-superBatches', 3, 'TODO')
+    cmd:option('-superBatches', 6, 'TODO')
     cmd:option('-imageSize', 256, 'Smallest side of the resized image')
     cmd:option('-cropSize', 224, 'Height and Width of image crop to be used as input layer')
     cmd:option('-sceneCategoryCount', 203, 'TODO')
@@ -29,7 +29,7 @@ function M.parse(arg)
     cmd:option('-pretrainedTransformModel', 'out/models/transform14.ty', 'TODO')
     
     cmd:option('-manualSeed', 2, 'Manually set RNG seed')
-    cmd:option('-GPU', 2, 'Default preferred GPU')
+    cmd:option('-GPU', 1, 'Default preferred GPU')
     
     ------------- Training options --------------------
     cmd:option('-epochCount',      100,    'Number of total epochs to run')

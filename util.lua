@@ -67,6 +67,11 @@ function M.split(str, delim)
     return result
 end
 
+function M.filenameFromPath(path)
+    local parts = M.split(path, '/')
+    return parts[#parts]
+end
+
 function M.listFilesByDir(dir, outFileBase)
     local files = M.getFileListRecursive(dir)
     local L = {}

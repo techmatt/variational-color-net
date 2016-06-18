@@ -2,7 +2,7 @@
 local imageLoader = require('imageLoader')
 local torchUtil = require('torchUtil')
 
-local debugBatchIndices = {[500]=true, [5000]=true, [20000]=true}
+local debugBatchIndices = {[500]=true, [6000]=true, [20000]=true}
 -- local debugBatchIndices = {[5]=true}
 --local debugBatchIndices = {}
 
@@ -14,11 +14,11 @@ local optimState = {
 local function paramsForEpoch(epoch)
     local regimes = {
         -- start, end,    LR,   WD,
-        {  1,     1,   1e-3,   0 },
-        {  2,     2,   1e-4,   0 },
-        {  3,     3,   5e-4,   0 },
-        {  4,     10,   4e-5,   0 },
-        { 11,     20,   2e-5,   0 },
+        {  1,     1,   1e-2,   0 },
+        {  2,     2,   1e-2,   0 },
+        {  3,     5,   1e-3,   0 },
+        {  6,     10,   5e-4,   0 },
+        { 11,     20,   1e-4,   0 },
         { 21,     30,   1e-5,   0 },
         { 31,     40,   5e-6,   0 },
         { 41,    1e8,   1e-6,   0 },
@@ -43,37 +43,6 @@ local RGBTargets = torch.CudaTensor()
 
 local timer = torch.Timer()
 local dataTimer = torch.Timer()
-
-local function toCPUTensor(t)
-    return torch.FloatTensor(t:size()):copy(t)
-end
-
-local function yuv2lab(iCPU)
-    --local iCPU = toCPUTensor(i)
-    return image.rgb2lab( image.yuv2rgb(iCPU) )
-end
-
-local function lab2yuv(iCPU)
-    --local iCPU = toCPUTensor(i)
-    return image.rgb2yuv( image.lab2rgb(iCPU) )
-end
-
-local function predictionCorrectedRGB(YImageGPU, RGBImageGPU)
-    local YImage = toCPUTensor(YImageGPU)
-    local RGBImage = toCPUTensor(RGBImageGPU)
-    
-    YImage:add(0.5)
-    local YRepeated = torch.repeatTensor( YImage, 3, 1, 1 )
-    YRepeated[2]:zero()
-    YRepeated[3]:zero()
-    local luminance = yuv2lab(YRepeated)
-
-    local LABImage = image.rgb2lab(RGBImage)
-    local LABImage = image.scale( LABImage, YImage:size()[2], YImage:size()[3] )
-    
-    LABImage[1] = luminance[1]
-    return image.lab2rgb( LABImage )
-end
 
 -- 4. trainSuperBatch - Used by train() to train a superbatch.
 local function trainColorGuesserSuperBatch(model, imgLoader, opt, epoch)
@@ -134,7 +103,7 @@ local function trainColorGuesserSuperBatch(model, imgLoader, opt, epoch)
                 local predictedGuideRGB = torchUtil.caffeDeprocess(predictedGuidePrediction[1]:clone())
                 image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_predictedGuideRGBSmall.jpg', predictedGuideRGB)
                 
-                local predictedGuideRGBCorrected = predictionCorrectedRGB(grayscaleInputs[1], predictedGuideRGB)
+                local predictedGuideRGBCorrected = torchUtil.predictionCorrectedRGB(grayscaleInputs[1], predictedGuideRGB)
                 image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_predictedGuideRGBBig.jpg', predictedGuideRGBCorrected)
                 
                 
@@ -143,7 +112,7 @@ local function trainColorGuesserSuperBatch(model, imgLoader, opt, epoch)
                 local trueGuideRGB = torchUtil.caffeDeprocess(trueGuidePrediction[1]:clone())
                 image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_trueGuideRGBSmall.jpg', trueGuideRGB)
                 
-                local trueGuideRGBCorrected = predictionCorrectedRGB(grayscaleInputs[1], trueGuideRGB)
+                local trueGuideRGBCorrected = torchUtil.predictionCorrectedRGB(grayscaleInputs[1], trueGuideRGB)
                 image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_trueGuideRGBBig.jpg', trueGuideRGBCorrected)
                 
                 model.finalColorizerNet:training()
@@ -195,7 +164,8 @@ local function train(model, imgLoader, opt, epoch)
     model.vggNet:clearState()
     model.guesserEncoder:clearState()
     
-    torch.save(opt.outDir .. 'models/colorGuesser' .. epoch .. '.t7', model.colorGuesserNet)
+    -- for some reason I think saving kills it?
+    --torch.save(opt.outDir .. 'models/colorGuesser' .. epoch .. '.t7', model.colorGuesserNet)
     
     print('==> doing epoch on training data:')
     print("==> online epoch # " .. epoch)

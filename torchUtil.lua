@@ -1,4 +1,6 @@
 
+local util = require('util')
+
 local function getSize(tensor)
     if not tensor or not tensor.size then
         return '[nil]'
@@ -266,6 +268,7 @@ local function moduelHasParams(module)
        moduleType == 'nn.ReLU' or
        moduleType == 'nn.LeakyReLU' or
        moduleType == 'nn.Reshape' or
+       moduleType == 'nn.Dropout' or
        moduleType == 'cudnn.Tanh' or
        moduleType == 'nn.JoinTable' or
        moduleType == 'nn.TVLoss' or
@@ -397,7 +400,35 @@ local function predictionCorrectedRGB(YImageGPU, RGBImageGPU)
     return image.lab2rgb( LABImage )
 end
 
+local function colorVibrancy(img)
+    if img:size()[1] == 1 then return 0 end
+    --print(getSize(img))
+    --print('min: ' .. torch.min(img))
+    --print('max: ' .. torch.max(img))
+    local lab = image.rgb2lab(img)
+    local pixels = lab:size()[2] * lab:size()[3]
+    local aAvg = torch.sum(lab[2]) / pixels
+    local bAvg = torch.sum(lab[3]) / pixels
+    local aAvg, bAvg = 0, 0
+    local aDelta = lab[2]:clone():csub(aAvg):abs()
+    local bDelta = lab[3]:clone():csub(bAvg):abs()
+    return (torch.sum(aDelta) + torch.sum(bDelta)) / pixels / 2.0
+    
+    --local saturation = lab[2]:clone():abs()
+    --return torch.sum(saturation) / pixels
+end
 
+local function vibrancyTest(imageLists, count, outDir)
+    lfs.mkdir(outDir)
+    for i = 1, count do
+        local imageCategory = math.random( #imageLists )
+        local list = imageLists[imageCategory]
+        local imagePath = list[ math.random( #list ) ]
+        local img = image.load(imagePath)
+        local vibrancy = colorVibrancy(img)
+        image.save(outDir .. tostring(vibrancy) .. '_' .. util.filenameFromPath(imagePath), img)
+    end
+end
 
 return {
     getSize = getSize,
@@ -412,6 +443,8 @@ return {
     transferParams = transferParams,
     nameLastModParams = nameLastModParams,
     predictionCorrectedRGB = predictionCorrectedRGB,
-    predictionABToRGB = predictionABToRGB
+    predictionABToRGB = predictionABToRGB,
+    colorVibrancy = colorVibrancy,
+    vibrancyTest = vibrancyTest,
 }
 

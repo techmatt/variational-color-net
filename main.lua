@@ -7,6 +7,7 @@ local opts = require('opts')
 local util = require('util')
 local models = require('models')
 local modelsColorGuide = require('modelsColorGuide')
+local torchUtil = require('torchUtil')
 local imageLoader = require('imageLoader')
 --local train = require('train')
 --local train = require('trainColorGuide')
@@ -30,6 +31,8 @@ local model = modelsColorGuide.createModel(opt)
 
 collectgarbage()
 local imgLoader = imageLoader.makeImageLoader(opt)
+
+--torchUtil.vibrancyTest(imgLoader.imageLists, 500, 'vibrancyTest/')
 
 -- Create unique directory for outputs (based on timestamp)
 opt.outDir = string.format('%s_%u/', opt.outBaseDir, os.time())
