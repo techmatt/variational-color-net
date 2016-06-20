@@ -157,12 +157,12 @@ local function train(model, imgLoader, opt, epoch)
 
     -- clear the intermediate states in the model before saving to disk
     -- this saves lots of disk space
-    model.grayEncoder:clearState()
+    --[[model.grayEncoder:clearState()
     model.colorEncoder:clearState()
     model.guideToFusion:clearState()
     model.decoder:clearState()
     model.vggNet:clearState()
-    model.guesserEncoder:clearState()
+    model.guesserEncoder:clearState()]]
     
     -- for some reason I think saving kills it?
     --torch.save(opt.outDir .. 'models/colorGuesser' .. epoch .. '.t7', model.colorGuesserNet)

@@ -7,7 +7,7 @@ local transferParams = torchUtil.transferParams
 
 local useResidualBlock = true
 local useLeakyReLU = true
-local colorGuideSize = 128
+local colorGuideSize = 512
 
 local function makeReLU()
     if useLeakyReLU then
@@ -354,7 +354,7 @@ local function createModel(opt)
     r.colorGuesserNet = createColorGuesserNet(opt, subnets)
     r.finalColorizerNet = createFinalColorizerNet(opt, subnets)
     
-    local pretrainedColorGuide = torch.load('pretrainedModels/colorGuide128.t7')
+    local pretrainedColorGuide = torch.load('pretrainedModels/colorGuide512.t7')
     pretrainedColorGuide:clearState()
     transferParams(pretrainedColorGuide, r.colorGuideNet)
     transferParams(pretrainedColorGuide, r.colorGuidePredictionNet)

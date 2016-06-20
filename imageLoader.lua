@@ -5,6 +5,14 @@ local torchUtil = require('torchUtil')
 
 local M = {}
 
+function M.filterAllFileLists(opt)
+    for category = 1, opt.sceneCategoryCount do
+        local inFile = opt.imageListBase .. util.zeroPad(category, 3) .. '.txt'
+        local outFile = opt.imageListBase .. util.zeroPad(category, 3) .. '_filtered.txt'
+        torchUtil.filterFileList(inFile, outFile)
+    end
+end
+
 function M.makeImageLoader(opt)
     print('Initializing images from: ' .. opt.imageListBase)
     
@@ -12,7 +20,7 @@ function M.makeImageLoader(opt)
     result.opt = opt
     result.imageLists = {}
     for category = 1, opt.sceneCategoryCount do
-        local list = util.readAllLines(opt.imageListBase .. util.zeroPad(category, 3) .. '.txt')
+        local list = util.readAllLines(opt.imageListBase .. util.zeroPad(category, 3) .. '_filtered.txt')
         table.insert(result.imageLists, list)
         -- print('category ' .. category .. ' has ' .. #list .. ' images')
     end

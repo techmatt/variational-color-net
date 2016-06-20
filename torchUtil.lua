@@ -430,6 +430,28 @@ local function vibrancyTest(imageLists, count, outDir)
     end
 end
 
+local function filterFileList(inListFile, outListFile)
+    if util.fileExists(outListFile) then
+        print('skipping ' .. outListFile)
+    end
+    print('filtering ' .. inListFile)
+    local linesIn = util.readAllLines(inListFile)
+    local linesOut = {}
+    local rejected = 0
+    for i, line in ipairs(linesIn) do
+        if math.fmod(i, 100) == 0 then print(i .. ' / ' .. #linesIn) end
+        local img = image.load(line)
+        if colorVibrancy(img) < 4.0 then
+            rejected = rejected + 1
+        else
+            table.insert(linesOut, line)
+        end
+    end
+    print('accepted: ' .. #linesOut)
+    print('rejected: ' .. rejected)
+    util.writeAllLines(outListFile, linesOut)
+end
+
 return {
     getSize = getSize,
     describeNet = describeNet,
@@ -446,5 +468,6 @@ return {
     predictionABToRGB = predictionABToRGB,
     colorVibrancy = colorVibrancy,
     vibrancyTest = vibrancyTest,
+    filterFileList = filterFileList,
 }
 

@@ -28,6 +28,7 @@ local model = modelsColorGuide.createModel(opt)
 --util.writeAllLines(opt.imageList, allImages)
 
 --util.listFilesByDir('/home/mdfisher/ssd2/Places/images256/', 'data/places')
+imageLoader.filterAllFileLists(opt)
 
 collectgarbage()
 local imgLoader = imageLoader.makeImageLoader(opt)

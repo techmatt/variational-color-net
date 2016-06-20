@@ -9,3 +9,7 @@
 /graphForward.svg
 /*.dot
 /*.svg
+/vibrancyTest
+/pretrainedModels/colorGuesser128.t7
+/pretrainedModels/colorGuide128.t7
+/pretrainedModels/colorGuide512.t7
