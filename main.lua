@@ -21,14 +21,14 @@ local opt = opts.parse(arg)
 cutorch.setDevice(opt.GPU) -- by default, use GPU 1
 torch.manualSeed(opt.manualSeed)
 
---local model = models.createModel(opt)
-local model = modelsColorGuide.createModel(opt)
-
 --local allImages = util.getFileListRecursive('/home/dritchie/mscoco/')
 --util.writeAllLines(opt.imageList, allImages)
 
 --util.listFilesByDir('/home/mdfisher/ssd2/Places/images256/', 'data/places')
-imageLoader.filterAllFileLists(opt)
+--imageLoader.filterAllFileLists(opt)
+
+--local model = models.createModel(opt)
+local model = modelsColorGuide.createModel(opt)
 
 collectgarbage()
 local imgLoader = imageLoader.makeImageLoader(opt)

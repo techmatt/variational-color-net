@@ -433,6 +433,7 @@ end
 local function filterFileList(inListFile, outListFile)
     if util.fileExists(outListFile) then
         print('skipping ' .. outListFile)
+        return
     end
     print('filtering ' .. inListFile)
     local linesIn = util.readAllLines(inListFile)

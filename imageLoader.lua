@@ -6,7 +6,10 @@ local torchUtil = require('torchUtil')
 local M = {}
 
 function M.filterAllFileLists(opt)
-    for category = 1, opt.sceneCategoryCount do
+    math.randomseed( os.time() )
+    local hillariousMultithreadFactor = 10
+    for categoryIndex = 1, opt.sceneCategoryCount * hillariousMultithreadFactor do
+        local category = math.random(opt.sceneCategoryCount)
         local inFile = opt.imageListBase .. util.zeroPad(category, 3) .. '.txt'
         local outFile = opt.imageListBase .. util.zeroPad(category, 3) .. '_filtered.txt'
         torchUtil.filterFileList(inFile, outFile)
