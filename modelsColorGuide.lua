@@ -259,19 +259,19 @@ local function createGuesserEncoder(opt)
     addResidualBlock(guesserEncoder, 128, 128, 3, 1, 1)
     addResidualBlock(guesserEncoder, 128, 128, 3, 1, 1)
     addResidualBlock(guesserEncoder, 128, 128, 3, 1, 1)
-    --addResidualBlock(guesserEncoder, 128, 128, 3, 1, 1)
-    --addResidualBlock(guesserEncoder, 128, 128, 3, 1, 1)
     
     addConvElement(guesserEncoder, 128, 256, 3, 2, 1) -- 28
-    addConvElement(guesserEncoder, 256, 256, 3, 1, 1) -- 28
+    
+    addResidualBlock(guesserEncoder, 256, 256, 3, 1, 1)
+    addResidualBlock(guesserEncoder, 256, 256, 3, 1, 1)
+    addResidualBlock(guesserEncoder, 256, 256, 3, 1, 1)
     
     addConvElement(guesserEncoder, 256, 64, 3, 2, 1) -- 14
-    addConvElement(guesserEncoder, 64, 32, 3, 1, 1) -- 14
     
-    guesserEncoder:add(nn.Reshape(6272, true))
+    guesserEncoder:add(nn.Reshape(12544, true))
     
     --guesserEncoder:add(nn.Dropout(0.5))
-    addLinearElement(guesserEncoder, 6272, 2048)
+    addLinearElement(guesserEncoder, 12544, 2048)
     
     --guesserEncoder:add(nn.Dropout(0.5))
     --addLinearElement(guesserEncoder, 2048, 2048)
