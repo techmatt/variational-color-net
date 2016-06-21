@@ -289,7 +289,7 @@ local function moduelHasParams(module)
 end
 
 local function transferParams(sourceNetwork, targetNetwork)
-    print('transterring parameters')
+    print('transferring parameters')
     local sourceNetworkList = {}
     for i, module in ipairs(sourceNetwork:listModules()) do
         if moduelHasParams(module) then

@@ -1,15 +1,7 @@
 /out*
 /data
 ._*
-/graph.dot
-/graph.svg
-/graphBackward.dot
-/graphBackward.svg
-/graphForward.dot
-/graphForward.svg
 /*.dot
 /*.svg
 /vibrancyTest
-/pretrainedModels/colorGuesser128.t7
-/pretrainedModels/colorGuide128.t7
-/pretrainedModels/colorGuide512.t7
+/pretrainedModels/*.t7
