@@ -217,8 +217,8 @@ local function createColorGuideNet(opt, subnets)
     local perceptualContent = subnets.vggNet(decoderOutput):annotate({name = 'perceptualContent'})
     local contentLoss = nn.MSECriterion()({perceptualContent, targetContent}):annotate({name = 'contentLoss'})
 
-    local pixelRGBLossMul = nn.MulConstant(opt.pixelRGBWeight, true)(pixelRGBLoss)
-    local contentLossMul = nn.MulConstant(opt.contentWeight, true)(contentLoss)
+    local pixelRGBLossMul = nn.MulConstant(opt.pixelRGBWeight, false)(pixelRGBLoss)
+    local contentLossMul = nn.MulConstant(opt.contentWeight, false)(contentLoss)
 
     -- Full training network including all loss functions
     local colorGuideNet = nn.gModule({grayscaleImage, targetRGB, targetContent}, {pixelRGBLossMul, contentLossMul})
@@ -293,7 +293,6 @@ local function craeteDiscriminator(opt)
     local discriminator = nn.Sequential()
     discriminator.paramName = 'discriminator'
 
-    discriminator:add(nn.Dropout(0.5))
     addLinearElement(discriminator, opt.colorGuideSize, 1024)
     discriminator:add(nn.Dropout(0.5))
     addLinearElement(discriminator, 1024, 512)
@@ -409,22 +408,31 @@ local function createColorGuesserNet(opt, subnets)
     -- Input nodes
     local grayscaleImage = nn.Identity()():annotate({name = 'grayscaleImage'})
     local targetColorGuide = nn.Identity()():annotate({name = 'targetColorGuide'})
+    local targetCategories = nn.Identity()():annotate({name = 'targetCategories'})
     
     -- Intermediates
     local guesserEncoderOutput = subnets.guesserEncoder(grayscaleImage):annotate({name = 'guesserEncoderOutput'})
+    local classProbabilitiesPreLog = subnets.discriminator(guesserEncoderOutput):annotate({name = 'classProbabilitiesPreLog'})
     
     -- Losses
     print('adding guide loss')
     local guideLoss = nn.MSECriterion()({guesserEncoderOutput, targetColorGuide}):annotate({name = 'guideLoss'})
     
+    print('adding advesary loss')
+    local classProbabilities = cudnn.LogSoftMax()(classProbabilitiesPreLog):annotate({name = 'classProbabilities'})
+    local advesaryLoss = nn.ClassNLLCriterion()({classProbabilities, targetCategories}):annotate{name = 'classLoss'}
+    
+    local guideLossMul = nn.MulConstant(opt.guideWeight, false)(guideLoss)
+    local advesaryLossMul = nn.MulConstant(opt.advesaryWeight, false)(advesaryLoss)
+    
     -- Full training network including all loss functions
-    local colorGuesserNet = nn.gModule({grayscaleImage, targetColorGuide}, {guideLoss})
+    local colorGuesserNet = nn.gModule({grayscaleImage, targetColorGuide, targetCategories}, {guideLossMul, advesaryLossMul})
 
     cudnn.convert(colorGuesserNet, cudnn)
     colorGuesserNet = colorGuesserNet:cuda()
     graph.dot(colorGuesserNet.fg, 'colorGuesserForward', 'colorGuesserForward')
     --graph.dot(colorGuideNet.bg, 'colorGuideBackward', 'graphBackward')
-    return colorGuesserNet, guesserEncoderOutput
+    return colorGuesserNet, guesserEncoderOutput, classProbabilities
 end
 
 local function createFinalColorizerNet(opt, subnets)
@@ -529,7 +537,7 @@ local function createModel(opt)
     r.colorGuidePredictionNet = createColorGuidePredictionNet(opt, subnets)
     r.discriminatorNet, r.discriminatorProbabilities = createDiscriminatorNet(opt, subnets)
     
-    r.colorGuesserNet, r.predictedColorGuide = createColorGuesserNet(opt, subnets)
+    r.colorGuesserNet, r.predictedColorGuide, r.guesserClassProbabilities = createColorGuesserNet(opt, subnets)
     r.finalColorizerNet = createFinalColorizerNet(opt, subnets)
     
     local pretrainedColorGuide = torch.load('pretrainedModels/colorGuide' .. opt.colorGuideSize .. '.t7')
