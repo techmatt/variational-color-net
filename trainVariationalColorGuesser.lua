@@ -67,7 +67,6 @@ local function trainColorGuesserSuperBatch(model, imgLoader, opt, epoch)
 
             -- sample randomness
             local randomnessCPU = torch.randn(opt.batchSize, opt.colorGuideSize)
-            -- local randomnessCPU = torch.Tensor(opt.batchSize, opt.colorGuideSize):fill(0)
             
             -- transfer over to GPU
             grayscaleInputs:resize(batch.grayscaleInputs:size()):copy(batch.grayscaleInputs)

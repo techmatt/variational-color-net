@@ -279,6 +279,7 @@ local function moduelHasParams(module)
        moduleType == 'nn.CMulTable' or
        moduleType == 'nn.SelectTable' or
        moduleType == 'nn.Exp' or
+       moduleType == 'nn.Callback' or
        moduleType == 'nn.ConcatTable' then
        return false
     end
