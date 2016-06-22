@@ -7,7 +7,11 @@ local debugBatchIndices = {[500]=true, [6000]=true, [20000]=true}
 --local debugBatchIndices = {}
 
 -- Setup a reused optimization state (for adam/sgd).
-local optimState = {
+local optimStateGuesser = {
+    learningRate = 0.0
+}
+
+local optimStateDiscriminator = {
     learningRate = 0.0
 }
 
@@ -35,6 +39,7 @@ end
 local trainLogger = nil
 local batchNumber               -- Current batch in current epoch
 local totalBatchCount = 0       -- Total # of batches across all epochs
+local totalDBatchCount = 0       -- Total # of batches across all discriminator epochs
 local epochStats = {}
 
 -- GPU inputs (preallocate)
@@ -124,22 +129,88 @@ local function trainColorGuesserSuperBatch(model, imgLoader, opt, epoch)
         
         return totalLossSum, gradParameters
     end
-    optim.adam(feval, parameters, optimState)
+    optim.adam(feval, parameters, optimStateGuesser)
 
     cutorch.synchronize()
-    batchNumber = batchNumber + 1
     
     epochStats.total = epochStats.total + totalLossSum
     epochStats.guide = epochStats.guide + guideLossSum
     
     print(('Epoch: [%d][%d/%d]\tTime %.3f Err %.4f LR %.0e DataLoadingTime %.3f'):format(
         epoch, batchNumber, opt.epochSize, timer:time().real, totalLossSum,
-        optimState.learningRate, dataLoadingTime))
+        optimStateGuesser.learningRate, dataLoadingTime))
         
     print(string.format('  Guide loss: %f', guideLossSum))
     
     dataTimer:reset()
     totalBatchCount = totalBatchCount + 1
+end
+
+-- GPU inputs (preallocate)
+local discriminatorColorGuides = torch.CudaTensor()
+local discriminatorTargetCategories = torch.CudaTensor()
+
+local function trainDiscriminator(model, imgLoader, opt, epoch)
+    
+    local parameters, gradParameters = model.discriminatorNet:getParameters()
+    
+    cutorch.synchronize()
+
+    local dataLoadingTime = 0
+    timer:reset()
+    
+    local classLabels = torch.IntTensor(opt.batchSize)
+    for i = 1, opt.batchSize / 2 do classLabels[i] = 1 end
+    for i = opt.batchSize / 2 + 1, opt.batchSize do classLabels[i] = 2 end
+    discriminatorTargetCategories:resize(classLabels:size()):copy(classLabels)
+    
+    local discriminatorLossSum = 0
+    local feval = function(x)
+        model.discriminatorNet:zeroGradParameters()
+        
+        for superBatch = 1, opt.discriminatorSuperBatches do
+            local loadTimeStart = dataTimer:time().real
+            local batch = imageLoader.sampleBatch(imgLoader)
+            local loadTimeEnd = dataTimer:time().real
+            dataLoadingTime = dataLoadingTime + (loadTimeEnd - loadTimeStart)
+            
+            RGBTargets:resize(batch.RGBTargets:size()):copy(batch.RGBTargets)
+            
+            
+            model.colorEncoder:evaluate()
+            local colorGuideTargets = model.colorEncoder:forward(RGBTargets)
+            model.colorEncoder:training()
+            
+            discriminatorColorGuides:resize(colorGuideTargets:size()):copy(colorGuideTargets)
+            
+            model.colorGuesserNet:evaluate()
+            local unusedLoss = model.colorGuesserNet:forward({grayscaleInputs, colorGuideTargets})
+            local colorGuidePredictions = model.predictedColorGuide.data.module.output
+            model.colorGuesserNet:training()
+            
+            for i = opt.batchSize / 2 + 1, opt.batchSize do discriminatorColorGuides[i]:copy(colorGuidePredictions[i]) end
+            
+            local discriminatorLoss = model.discriminatorNet:forward({discriminatorColorGuides, discriminatorTargetCategories})
+            discriminatorLossSum = discriminatorLossSum + discriminatorLoss[1]
+            model.discriminatorNet:backward({colorGuideTargets, discriminatorTargetCategories}, discriminatorLoss)
+        end
+        
+        return discriminatorLossSum, gradParameters
+    end
+    optim.adam(feval, parameters, optimStateDiscriminator)
+
+    cutorch.synchronize()
+    
+    epochStats.discrimnator = epochStats.discrimnator + discriminatorLossSum
+    
+    print(('DEpoch: [%d][%d/%d]\tTime %.3f Err %.4f LR %.0e DataLoadingTime %.3f'):format(
+        epoch, batchNumber, opt.epochSize, timer:time().real, discriminatorLossSum,
+        optimStateDiscriminator.learningRate, dataLoadingTime))
+        
+    --print(string.format('  Discriminator loss: %f', discriminatorLossSum))
+    
+    dataTimer:reset()
+    totalDBatchCount = totalDBatchCount + 1
 end
 
 -- train - this function handles the high-level training loop,
@@ -172,9 +243,13 @@ local function train(model, imgLoader, opt, epoch)
 
     local params, newRegime = paramsForEpoch(epoch)
     if newRegime then
-        optimState = {
+        optimStateGuesser = {
         learningRate = params.learningRate,
         weightDecay = params.weightDecay
+        }
+        optimStateDiscriminator = {
+        learningRate = 1e-3,
+        weightDecay = 0.0
         }
     end
     cutorch.synchronize()
@@ -186,9 +261,12 @@ local function train(model, imgLoader, opt, epoch)
     
     epochStats.total = 0
     epochStats.guide = 0
+    epochStats.discrimnator = 0
     
     for i = 1, opt.epochSize do
+        batchNumber = batchNumber + 1
         trainColorGuesserSuperBatch(model, imgLoader, opt, epoch)
+        trainDiscriminator(model, imgLoader, opt, epoch)
     end
     
     cutorch.synchronize()
@@ -196,10 +274,12 @@ local function train(model, imgLoader, opt, epoch)
     local scaleFactor = 1.0 / (opt.batchSize * opt.superBatches * opt.epochSize)
     epochStats.total = epochStats.total * scaleFactor
     epochStats.guide = epochStats.guide * scaleFactor
+    epochStats.discrimnator = epochStats.discrimnator * scaleFactor
     
     trainLogger:add{
         ['total loss (train set)'] = epochStats.total,
-        ['guide loss (train set)'] = epochStats.guide
+        ['guide loss (train set)'] = epochStats.guide,
+        ['discriminator loss (train set)'] = epochStats.discrimnator
     }
     print(string.format('Epoch: [%d][TRAINING SUMMARY] Total Time(s): %.2f\t'
         .. 'average loss (per batch): %.2f \t '
