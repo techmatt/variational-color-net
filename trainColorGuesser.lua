@@ -165,6 +165,7 @@ local function trainDiscriminator(model, imgLoader, opt, epoch)
     discriminatorTargetCategories:resize(classLabels:size()):copy(classLabels)
     
     local discriminatorLossSum = 0
+    local top1Accuracy = -1
     local feval = function(x)
         model.discriminatorNet:zeroGradParameters()
         
@@ -175,7 +176,6 @@ local function trainDiscriminator(model, imgLoader, opt, epoch)
             dataLoadingTime = dataLoadingTime + (loadTimeEnd - loadTimeStart)
             
             RGBTargets:resize(batch.RGBTargets:size()):copy(batch.RGBTargets)
-            
             
             model.colorEncoder:evaluate()
             local colorGuideTargets = model.colorEncoder:forward(RGBTargets)
@@ -193,6 +193,12 @@ local function trainDiscriminator(model, imgLoader, opt, epoch)
             local discriminatorLoss = model.discriminatorNet:forward({discriminatorColorGuides, discriminatorTargetCategories})
             discriminatorLossSum = discriminatorLossSum + discriminatorLoss[1]
             model.discriminatorNet:backward({colorGuideTargets, discriminatorTargetCategories}, discriminatorLoss)
+            
+            if superBatch == 1 then
+                top1Accuracy = torchUtil.top1Accuracy(model.discriminatorProbabilities.data.module.output:clone():exp(), discriminatorTargetCategories)
+                --print(model.discriminatorProbabilities.data.module.output:clone():exp())
+                --print(discriminatorTargetCategories)
+            end
         end
         
         return discriminatorLossSum, gradParameters
@@ -206,6 +212,7 @@ local function trainDiscriminator(model, imgLoader, opt, epoch)
     print(('DEpoch: [%d][%d/%d]\tTime %.3f Err %.4f LR %.0e DataLoadingTime %.3f'):format(
         epoch, batchNumber, opt.epochSize, timer:time().real, discriminatorLossSum,
         optimStateDiscriminator.learningRate, dataLoadingTime))
+    print('  Accuracy: ' .. top1Accuracy .. '%')
         
     --print(string.format('  Discriminator loss: %f', discriminatorLossSum))
     
@@ -263,9 +270,14 @@ local function train(model, imgLoader, opt, epoch)
     epochStats.guide = 0
     epochStats.discrimnator = 0
     
-    for i = 1, opt.epochSize do
+    for i = 1, 2 do
         batchNumber = batchNumber + 1
         trainColorGuesserSuperBatch(model, imgLoader, opt, epoch)
+        --trainDiscriminator(model, imgLoader, opt, epoch)
+    end
+    
+    for i = 1, opt.epochSize do
+        batchNumber = batchNumber + 1
         trainDiscriminator(model, imgLoader, opt, epoch)
     end
     

@@ -457,6 +457,20 @@ local function filterFileList(inListFile, outListFile)
     util.writeAllLines(outListFile, linesOut)
 end
 
+local function top1Accuracy(classProbabilities, targetClasses)
+    local top1 = 0
+    local batchSize = classProbabilities:size()[1]
+    local _, predictions = classProbabilities:float():sort(2, true) -- descending
+    for b = 1, batchSize do
+        --print(predictions[b][1] .. ' vs ' .. classLabelsCPU[b][1])
+        if predictions[b][1] == targetClasses[b] then
+            top1 = top1 + 1
+        end
+    end
+    top1 = top1 * 100 / batchSize
+    return top1
+end
+
 return {
     getSize = getSize,
     describeNet = describeNet,
@@ -474,5 +488,6 @@ return {
     colorVibrancy = colorVibrancy,
     vibrancyTest = vibrancyTest,
     filterFileList = filterFileList,
+    top1Accuracy = top1Accuracy,
 }
 

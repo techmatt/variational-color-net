@@ -303,8 +303,6 @@ local function craeteDiscriminator(opt)
     discriminator:add(nn.Linear(128, 2))
     nameLastModParams(discriminator)
     
-    discriminator:add(nn.LogSoftMax())
-    
     return discriminator
 end
 
