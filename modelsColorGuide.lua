@@ -289,6 +289,25 @@ local function createGuesserEncoder(opt)
     return guesserEncoder
 end
 
+local function craeteDiscriminator(opt)
+    local discriminator = nn.Sequential()
+    discriminator.paramName = 'discriminator'
+
+    discriminator:add(nn.Dropout(0.5))
+    addLinearElement(discriminator, opt.colorGuideSize, 1024)
+    discriminator:add(nn.Dropout(0.5))
+    addLinearElement(discriminator, 1024, 512)
+    discriminator:add(nn.Dropout(0.5))
+    addLinearElement(discriminator, 512, 128)
+    
+    discriminator:add(nn.Linear(128, 2))
+    nameLastModParams(discriminator)
+    
+    discriminator:add(nn.LogSoftMax())
+    
+    return discriminator
+end
+
 -- This version returns a table of {mu, logSigmaSquared} instead
 local function createVariationalGuesserEncoder(opt)
     local guesserEncoder = nn.Sequential()
@@ -366,6 +385,28 @@ local function createSampleTransformer(opt)
     -- return nn.Identity()
 end
 
+local function createDiscriminatorNet(opt, subnets)
+    -- Input nodes
+    local colorGuides = nn.Identity()():annotate({name = 'colorGuides'})
+    local targetCategories = nn.Identity()():annotate({name = 'targetCategories'})
+    
+    -- Intermediates
+    local classProbabilitiesPreLog = subnets.discriminator(colorGuides):annotate({name = 'classProbabilitiesPreLog'})
+    
+    -- Losses
+    print('adding class loss')
+    local classProbabilities = cudnn.LogSoftMax()(classProbabilitiesPreLog):annotate({name = 'classProbabilities'})
+    local classLoss = nn.ClassNLLCriterion()({classProbabilities, targetCategories}):annotate{name = 'classLoss'}
+    
+    -- Full training network including all loss functions
+    local discriminatorNet = nn.gModule({colorGuides, targetCategories}, {classLoss})
+
+    cudnn.convert(discriminatorNet, cudnn)
+    discriminatorNet = discriminatorNet:cuda()
+    graph.dot(discriminatorNet.fg, 'discriminatorGraphForward', 'discriminatorGraphForward')
+    return discriminatorNet, classProbabilities
+end
+
 local function createColorGuesserNet(opt, subnets)
     -- Input nodes
     local grayscaleImage = nn.Identity()():annotate({name = 'grayscaleImage'})
@@ -385,7 +426,7 @@ local function createColorGuesserNet(opt, subnets)
     colorGuesserNet = colorGuesserNet:cuda()
     graph.dot(colorGuesserNet.fg, 'colorGuesserForward', 'colorGuesserForward')
     --graph.dot(colorGuideNet.bg, 'colorGuideBackward', 'graphBackward')
-    return colorGuesserNet
+    return colorGuesserNet, guesserEncoderOutput
 end
 
 local function createFinalColorizerNet(opt, subnets)
@@ -473,6 +514,7 @@ local function createModel(opt)
         grayEncoder = createGrayEncoder(opt),
         colorEncoder = createColorEncoder(opt),
         guideToFusion = createGuideToFusion(opt),
+        discriminator = craeteDiscriminator(opt),
         decoder = createDecoder(opt),
         guesserEncoder = createGuesserEncoder(opt),
         vggNet = createVGG(opt)
@@ -487,8 +529,9 @@ local function createModel(opt)
     -- Create composite nets
     r.colorGuideNet = createColorGuideNet(opt, subnets)
     r.colorGuidePredictionNet = createColorGuidePredictionNet(opt, subnets)
+    r.discriminatorNet, r.discriminatorProbabilities = createDiscriminatorNet(opt, subnets)
     
-    r.colorGuesserNet = createColorGuesserNet(opt, subnets)
+    r.colorGuesserNet, r.predictedColorGuide = createColorGuesserNet(opt, subnets)
     r.finalColorizerNet = createFinalColorizerNet(opt, subnets)
     
     local pretrainedColorGuide = torch.load('pretrainedModels/colorGuide' .. opt.colorGuideSize .. '.t7')
