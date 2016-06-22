@@ -67,7 +67,8 @@ function KLDCriterion:updateOutput(input)
 
     -- sigma^2
     self.term1:copy(input[2]):exp()
-    -- print(input[1]:norm(), self.term1:norm())
+    print('Mu: ' .. input[1]:norm(1) / input[1]:nElement() ..
+          '  |  Sigma: ' .. self.term1:norm(1) / self.term1:nElement())
 
     -- mu^2
     self.term2:copy(input[1]):pow(2)
@@ -121,3 +122,20 @@ function KLDCriterion:updateGradInput(input, gradOutput)
     return self.gradInput
 end
 
+-------------------------------------------------------------------------------
+
+-- Variant of Identity that will also execute some arbitrary function whenever it is
+--    called (this function receives the module input)
+-- Useful for e.g. print statement debugging
+
+local Callback, parent = torch.class('nn.Callback', 'nn.Identity')
+
+function Callback:__init(fn)
+    parent.__init(self)
+    self.fn = fn
+end
+
+function Callback:updateOutput(input)
+    self.fn(input)
+    return parent.updateOutput(self, input)
+end
