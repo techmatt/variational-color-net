@@ -7,7 +7,6 @@ local transferParams = torchUtil.transferParams
 
 local useResidualBlock = true
 local useLeakyReLU = true
-local colorGuideSize = 512
 
 local function makeReLU()
     if useLeakyReLU then
@@ -31,6 +30,14 @@ local function addLinearElement(network,iChannels,oChannels)
     network:add(cudnn.BatchNormalization(oChannels, 1e-3))
     nameLastModParams(network)
     network:add(makeReLU())
+end
+
+local function addLinearTanhElement(network,iChannels,oChannels)
+    network:add(nn.Linear(iChannels, oChannels))
+    nameLastModParams(network)
+    network:add(cudnn.BatchNormalization(oChannels, 1e-3))
+    nameLastModParams(network)
+    network:add(nn.Tanh())
 end
 
 local function addUpConvElement(network,iChannels,oChannels,size,stride,padding,extra)
@@ -141,7 +148,7 @@ local function createColorEncoder(opt)
     
     addLinearElement(colorEncoder, 6272, 1024)
     
-    colorEncoder:add(nn.Linear(1024, colorGuideSize))
+    colorEncoder:add(nn.Linear(1024, opt.colorGuideSize))
     nameLastModParams(colorEncoder)
     --colorEncoder:add(nn.Tanh())
     
@@ -152,7 +159,7 @@ local function createGuideToFusion(opt)
     local guideToFusion = nn.Sequential()
     guideToFusion.paramName = 'guideToFusion'
 
-    addLinearElement(guideToFusion, colorGuideSize, 784)
+    addLinearElement(guideToFusion, opt.colorGuideSize, 784)
     
     guideToFusion:add(nn.Reshape(16, 7, 7, true))
     
@@ -276,10 +283,87 @@ local function createGuesserEncoder(opt)
     --guesserEncoder:add(nn.Dropout(0.5))
     --addLinearElement(guesserEncoder, 2048, 2048)
     
-    guesserEncoder:add(nn.Linear(2048, colorGuideSize))
+    guesserEncoder:add(nn.Linear(2048, opt.colorGuideSize))
     nameLastModParams(guesserEncoder)
     
     return guesserEncoder
+end
+
+-- This version returns a table of {mu, logSigmaSquared} instead
+local function createVariationalGuesserEncoder(opt)
+    local guesserEncoder = nn.Sequential()
+    guesserEncoder.paramName = 'guesserEncoder'
+
+    addConvElement(guesserEncoder, 1, 16, 7, 1, 1) -- 224
+    
+    addConvElement(guesserEncoder, 16, 32, 3, 2, 1) -- 112
+    addConvElement(guesserEncoder, 32, 64, 3, 1, 1) -- 112
+    
+    addConvElement(guesserEncoder, 64, 128, 3, 2, 1) -- 56
+    addConvElement(guesserEncoder, 128, 128, 3, 1, 1) -- 56
+    
+    addResidualBlock(guesserEncoder, 128, 128, 3, 1, 1)
+    addResidualBlock(guesserEncoder, 128, 128, 3, 1, 1)
+    addResidualBlock(guesserEncoder, 128, 128, 3, 1, 1)
+    
+    addConvElement(guesserEncoder, 128, 256, 3, 2, 1) -- 28
+    
+    addResidualBlock(guesserEncoder, 256, 256, 3, 1, 1)
+    addResidualBlock(guesserEncoder, 256, 256, 3, 1, 1)
+    addResidualBlock(guesserEncoder, 256, 256, 3, 1, 1)
+    
+    addConvElement(guesserEncoder, 256, 64, 3, 2, 1) -- 14
+    
+    guesserEncoder:add(nn.Reshape(12544, true))
+    
+    addLinearElement(guesserEncoder, 12544, 2048)
+
+    -- guesserEncoder:add(nn.Linear(2048, opt.colorGuideSize))
+    -- nameLastModParams(guesserEncoder)
+
+    -- Split into mean and variance
+    local split = nn.ConcatTable()
+    split.paramName = 'guesserEncoder_splitter'
+    split:add(nn.Linear(2048, opt.colorGuideSize))
+    nameLastModParams(split)
+    split:add(nn.Linear(2048, opt.colorGuideSize))
+    nameLastModParams(split)
+    guesserEncoder:add(split)
+    
+    return guesserEncoder
+end
+
+local function createReparameterizer(opt)
+    -- Input is {{mu, logSigmaSq}, randomness}
+    local params = nn.Identity()()
+    local randomness = nn.Identity()()
+
+    -- Extract mu and logSigmaSq from the input table
+    local mu = nn.SelectTable(1)(params)
+    local logSigmaSq = nn.SelectTable(2)(params)
+
+    -- Compute sigma (log(sigma^2) = 2log(sigma))
+    local sigma = nn.Exp()(nn.MulConstant(0.5, true)(logSigmaSq))
+
+    -- Shift and scale the randomness
+    local output = nn.CAddTable()({mu, nn.CMulTable()({sigma, randomness})})
+
+    return nn.gModule({params, randomness}, {output})
+end
+
+-- Take the Gaussian sample and put it through a non-linear transform
+-- (so it can model more weirdly-shaped distributions)
+local function createSampleTransformer(opt)
+    local t = nn.Sequential()
+    t.paramName = 'sampleTransformer'
+
+    addLinearTanhElement(t, opt.colorGuideSize, opt.colorGuideSize)
+    t:add(nn.Linear(opt.colorGuideSize, opt.colorGuideSize))
+    nameLastModParams(t)
+
+    return t
+
+    -- return nn.Identity()
 end
 
 local function createColorGuesserNet(opt, subnets)
@@ -317,6 +401,59 @@ local function createFinalColorizerNet(opt, subnets)
     
     -- Full training network including all loss functions
     local finalColorizerNet = nn.gModule({grayscaleImage}, {decoderOutput})
+
+    cudnn.convert(finalColorizerNet, cudnn)
+    finalColorizerNet = finalColorizerNet:cuda()
+    graph.dot(finalColorizerNet.fg, 'finalColorizerForward', 'finalColorizerForward')
+    --graph.dot(colorGuideNet.bg, 'colorGuideBackward', 'graphBackward')
+    return finalColorizerNet
+end
+
+local function createVariationalColorGuesserNet(opt, subnets)
+    -- Input nodes
+    local grayscaleImage = nn.Identity()():annotate({name = 'grayscaleImage'})
+    local randomness = nn.Identity()():annotate({name = 'randomness'})
+    local targetColorGuide = nn.Identity()():annotate({name = 'targetColorGuide'})
+    
+    -- Intermediates
+    local predictedParams = subnets.guesserEncoder(grayscaleImage):annotate({name = 'predictedParams'})
+    local sample = subnets.reparameterizer({predictedParams, randomness}):annotate({name = 'sample'})
+    local xformedSample = subnets.sampleTransformer(sample):annotate({name = 'transformedSample'})
+    
+    -- Losses
+    print('adding guide loss')
+    local guideLoss = nn.MSECriterion()({xformedSample, targetColorGuide}):annotate({name = 'guideLoss'})
+
+    print('adding KLD loss')
+    local kldLoss = nn.KLDCriterion()(predictedParams):annotate({name = 'kldLoss'})
+    kldLoss = nn.MulConstant(opt.KLDWeight, true)(kldLoss)
+    
+    -- Full training network including all loss functions
+    local colorGuesserNet = nn.gModule({grayscaleImage, randomness, targetColorGuide}, {guideLoss, kldLoss})
+
+    cudnn.convert(colorGuesserNet, cudnn)
+    colorGuesserNet = colorGuesserNet:cuda()
+    graph.dot(colorGuesserNet.fg, 'colorGuesserForward', 'colorGuesserForward')
+    --graph.dot(colorGuideNet.bg, 'colorGuideBackward', 'graphBackward')
+    return colorGuesserNet
+end
+
+local function createVariationalFinalColorizerNet(opt, subnets)
+    -- Input nodes
+    local grayscaleImage = nn.Identity()():annotate({name = 'grayscaleImage'})
+    local randomness = nn.Identity()():annotate({name = 'randomness'})
+    
+    -- Intermediates
+    local predictedParams = subnets.guesserEncoder(grayscaleImage):annotate({name = 'predictedParams'})
+    local sample = subnets.reparameterizer({predictedParams, randomness}):annotate({name = 'sample'})
+    local xformedSample = subnets.sampleTransformer(sample):annotate({name = 'transformedSample'})
+    local guideToFusionOutput = subnets.guideToFusion(xformedSample):annotate({name = 'guideToFusionOutput'})
+    local grayEncoderOutput = subnets.grayEncoder(grayscaleImage):annotate({name = 'grayEncoderOutput'})
+    local fusionOutput = nn.JoinTable(1, 3)({grayEncoderOutput, guideToFusionOutput}):annotate({name = 'fusionOutput'})
+    local decoderOutput = subnets.decoder(fusionOutput):annotate({name = 'decoderOutput'})
+    
+    -- Full training network including all loss functions
+    local finalColorizerNet = nn.gModule({grayscaleImage, randomness}, {decoderOutput})
 
     cudnn.convert(finalColorizerNet, cudnn)
     finalColorizerNet = finalColorizerNet:cuda()
@@ -363,7 +500,48 @@ local function createModel(opt)
     return r
 end
 
+local function createVariationalModel(opt)
+    print('Creating variational model')
+
+    -- Return table
+    local r = {}
+
+    -- Create individual sub-networks
+    local subnets = {
+        grayEncoder = createGrayEncoder(opt),
+        colorEncoder = createColorEncoder(opt),
+        guideToFusion = createGuideToFusion(opt),
+        decoder = createDecoder(opt),
+        guesserEncoder = createVariationalGuesserEncoder(opt),
+        reparameterizer = createReparameterizer(opt),
+        sampleTransformer = createSampleTransformer(opt),
+        vggNet = createVGG(opt)
+    }
+    r.grayEncoder = subnets.grayEncoder
+    r.colorEncoder = subnets.colorEncoder
+    r.guideToFusion = subnets.guideToFusion
+    r.decoder = subnets.decoder
+    r.guesserEncoder = subnets.guesserEncoder
+    r.vggNet = subnets.vggNet  -- Needs to be exposed to gradients be zeroed
+
+    -- Create composite nets
+    r.colorGuideNet = createColorGuideNet(opt, subnets)
+    r.colorGuidePredictionNet = createColorGuidePredictionNet(opt, subnets)
+    
+    r.colorGuesserNet = createVariationalColorGuesserNet(opt, subnets)
+    r.finalColorizerNet = createVariationalFinalColorizerNet(opt, subnets)
+    
+    local pretrainedColorGuide = torch.load('pretrainedModels/colorGuide512.t7')
+    pretrainedColorGuide:clearState()
+    transferParams(pretrainedColorGuide, r.colorGuideNet)
+    transferParams(pretrainedColorGuide, r.colorGuidePredictionNet)
+    transferParams(pretrainedColorGuide, r.finalColorizerNet)
+        
+    return r
+end
+
 
 return {
-    createModel = createModel
+    createModel = createModel,
+    createVariationalModel = createVariationalModel
 }

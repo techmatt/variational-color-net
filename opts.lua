@@ -25,6 +25,7 @@ function M.parse(arg)
     cmd:option('-KLDWeight', 1.0, 'TODO')
     cmd:option('-useRandomness', true, 'TODO')
     cmd:option('-classifierOnly', false, 'TODO')
+    cmd:option('colorGuideSize', 512, 'color guide bottleneck size')
     
     cmd:option('-pretrainedTransformModel', 'out/models/transform14.ty', 'TODO')
     
@@ -40,6 +41,7 @@ function M.parse(arg)
     
     ------------- Data options ------------------------
     cmd:option('-nDonkeys',        8, 'number of donkeys to initialize (data loading threads)')
+    -- cmd:option('-nDonkeys',        0, 'number of donkeys to initialize (data loading threads)')
     
     local opt = cmd:parse(arg or {})
     
@@ -48,7 +50,7 @@ function M.parse(arg)
 
     assert(opt.numTestSamples <= opt.batchSize, 'numTestSamples must not exceed batchSize')
 
-    if not opt.useRandomness then opt.numTestSamples = 1 end
+    -- if not opt.useRandomness then opt.numTestSamples = 1 end
     
     return opt
 end

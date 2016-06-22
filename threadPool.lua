@@ -8,6 +8,7 @@ Threads.serialization('threads.sharedserialize')
 
 local function makeThreadPool(opt)
 
+    print('Initializing thread pool with ' .. opt.nDonkeys .. ' threads')
     local donkeys = nil
     do -- start K datathreads (donkeys)
         if opt.nDonkeys > 0 then

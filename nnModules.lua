@@ -67,6 +67,7 @@ function KLDCriterion:updateOutput(input)
 
     -- sigma^2
     self.term1:copy(input[2]):exp()
+    -- print(input[1]:norm(), self.term1:norm())
 
     -- mu^2
     self.term2:copy(input[1]):pow(2)
@@ -84,6 +85,7 @@ function KLDCriterion:updateOutput(input)
       self.term3:div(input[1]:nElement())
    end
 
+    -- negate b/c we're minimizing
     self.output[1] = -0.5 * self.term3:sum()
 
     return self.output
@@ -91,6 +93,9 @@ end
 
 function KLDCriterion:updateGradInput(input, gradOutput)
     self.gradInput = {}
+
+    -- self.gradInput[1] = input[1]:clone():fill(0)
+    -- self.gradInput[2] = input[2]:clone():fill(0)
 
     self.gradInput[1] = self.gradInput[1] or input[1].new()
     self.gradInput[1]:resizeAs(input[1])
@@ -109,8 +114,9 @@ function KLDCriterion:updateGradInput(input, gradOutput)
         self.gradInput[2]:div(input[1]:nElement())
     end
 
-    self.gradInput[1]:mul(gradOutput[1])
-    self.gradInput[2]:mul(gradOutput[1])
+    -- negate b/c we're minimizing
+    self.gradInput[1]:mul(-gradOutput[1])
+    self.gradInput[2]:mul(-gradOutput[1])
 
     return self.gradInput
 end

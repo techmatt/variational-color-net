@@ -18,8 +18,8 @@ end
 
 function M.makeImageLoader(opt)
     print('Initializing images from: ' .. opt.imageListBase)
-    
     local result = {}
+    result.donkeys = threadPool.makeThreadPool(opt)
     result.opt = opt
     result.imageLists = {}
     for category = 1, opt.sceneCategoryCount do
@@ -27,7 +27,6 @@ function M.makeImageLoader(opt)
         table.insert(result.imageLists, list)
         -- print('category ' .. category .. ' has ' .. #list .. ' images')
     end
-    result.donkeys = threadPool.makeThreadPool(opt)
     return result
 end
 

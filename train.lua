@@ -137,7 +137,7 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
                             top5 = top5 + 1
                         end
                     end
-                    top1 = top1 * 100 / opt.batchSize
+                    top1 = top1 * 100 / opt.batchSize   
                     top5 = top5 * 100 / opt.batchSize
                 end
             end
@@ -156,8 +156,8 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
                 image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_groundTruth.jpg', inClone)
                 
                 -- Save predicted images
+                local prediction = model.predictionNet:forward({grayscaleInputs, randomness})
                 for testSampleIndex = 1, opt.numTestSamples do
-                    local prediction = model.predictionNet:forward({grayscaleInputs, randomness})
                     local predictionRGB = torchUtil.caffeDeprocess(prediction[testSampleIndex]:clone())
                     
                     image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_sample' .. testSampleIndex .. '_predictedRGBDebug.jpg', predictionRGB)
