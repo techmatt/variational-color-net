@@ -32,6 +32,12 @@ local function addLinearElement(network,iChannels,oChannels)
     network:add(makeReLU())
 end
 
+local function addLinearElementNoBN(network,iChannels,oChannels)
+    network:add(nn.Linear(iChannels, oChannels))
+    nameLastModParams(network)
+    network:add(makeReLU())
+end
+
 local function addLinearTanhElement(network,iChannels,oChannels)
     network:add(nn.Linear(iChannels, oChannels))
     nameLastModParams(network)
@@ -217,8 +223,8 @@ local function createColorGuideNet(opt, subnets)
     local perceptualContent = subnets.vggNet(decoderOutput):annotate({name = 'perceptualContent'})
     local contentLoss = nn.MSECriterion()({perceptualContent, targetContent}):annotate({name = 'contentLoss'})
 
-    local pixelRGBLossMul = nn.MulConstant(opt.pixelRGBWeight, false)(pixelRGBLoss)
-    local contentLossMul = nn.MulConstant(opt.contentWeight, false)(contentLoss)
+    local pixelRGBLossMul = nn.MulConstant(opt.pixelRGBWeight, true)(pixelRGBLoss)
+    local contentLossMul = nn.MulConstant(opt.contentWeight, true)(contentLoss)
 
     -- Full training network including all loss functions
     local colorGuideNet = nn.gModule({grayscaleImage, targetRGB, targetContent}, {pixelRGBLossMul, contentLossMul})
@@ -293,11 +299,15 @@ local function craeteDiscriminator(opt)
     local discriminator = nn.Sequential()
     discriminator.paramName = 'discriminator'
 
-    addLinearElement(discriminator, opt.colorGuideSize, 1024)
+    --[[addLinearElement(discriminator, opt.colorGuideSize, 1024)
     discriminator:add(nn.Dropout(0.5))
     addLinearElement(discriminator, 1024, 512)
     discriminator:add(nn.Dropout(0.5))
-    addLinearElement(discriminator, 512, 128)
+    addLinearElement(discriminator, 512, 128)]]
+    
+    addLinearElementNoBN(discriminator, opt.colorGuideSize, 1024)
+    addLinearElementNoBN(discriminator, 1024, 512)
+    addLinearElementNoBN(discriminator, 512, 128)
     
     discriminator:add(nn.Linear(128, 2))
     nameLastModParams(discriminator)
@@ -422,8 +432,8 @@ local function createColorGuesserNet(opt, subnets)
     local classProbabilities = cudnn.LogSoftMax()(classProbabilitiesPreLog):annotate({name = 'classProbabilities'})
     local advesaryLoss = nn.ClassNLLCriterion()({classProbabilities, targetCategories}):annotate{name = 'classLoss'}
     
-    local guideLossMul = nn.MulConstant(opt.guideWeight, false)(guideLoss)
-    local advesaryLossMul = nn.MulConstant(opt.advesaryWeight, false)(advesaryLoss)
+    local guideLossMul = nn.MulConstant(opt.guideWeight, true)(guideLoss)
+    local advesaryLossMul = nn.MulConstant(opt.advesaryWeight, true)(advesaryLoss)
     
     -- Full training network including all loss functions
     local colorGuesserNet = nn.gModule({grayscaleImage, targetColorGuide, targetCategories}, {guideLossMul, advesaryLossMul})

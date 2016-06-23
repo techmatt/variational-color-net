@@ -4,6 +4,14 @@ paths.dofile('globals.lua')
 --note: using require won't emit parsing errors while paths.dofile will.
 
 local opts = require('opts')
+
+local opt = opts.parse(arg)
+
+cutorch.setDevice(opt.GPU) -- by default, use GPU 1
+torch.manualSeed(opt.manualSeed)
+torch.setdefaulttensortype('torch.FloatTensor')
+cudnn.benchmark = true
+
 local util = require('util')
 local models = require('models')
 local modelsColorGuide = require('modelsColorGuide')
@@ -12,14 +20,6 @@ local imageLoader = require('imageLoader')
 --local train = require('train')
 --local train = require('trainColorGuide')
 local train = require('trainColorGuesser')
-
-cudnn.benchmark = true
-torch.setdefaulttensortype('torch.FloatTensor')
-
-local opt = opts.parse(arg)
-
-cutorch.setDevice(opt.GPU) -- by default, use GPU 1
-torch.manualSeed(opt.manualSeed)
 
 --local allImages = util.getFileListRecursive('/home/dritchie/mscoco/')
 --util.writeAllLines(opt.imageList, allImages)
