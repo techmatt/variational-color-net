@@ -32,6 +32,12 @@ local function addLinearElement(network,iChannels,oChannels)
     network:add(makeReLU())
 end
 
+local function addLinearElementNoBN(network,iChannels,oChannels)
+    network:add(nn.Linear(iChannels, oChannels))
+    nameLastModParams(network)
+    network:add(makeReLU())
+end
+
 local function addLinearTanhElement(network,iChannels,oChannels)
     network:add(nn.Linear(iChannels, oChannels))
     nameLastModParams(network)
@@ -301,11 +307,15 @@ local function createDiscriminator(opt)
     local discriminator = nn.Sequential()
     discriminator.paramName = 'discriminator'
 
-    addLinearElement(discriminator, opt.colorGuideSize, 1024)
+    --[[addLinearElement(discriminator, opt.colorGuideSize, 1024)
     discriminator:add(nn.Dropout(0.5))
     addLinearElement(discriminator, 1024, 512)
     discriminator:add(nn.Dropout(0.5))
-    addLinearElement(discriminator, 512, 128)
+    addLinearElement(discriminator, 512, 128)]]
+    
+    addLinearElementNoBN(discriminator, opt.colorGuideSize, 1024)
+    addLinearElementNoBN(discriminator, 1024, 512)
+    addLinearElementNoBN(discriminator, 512, 128)
     
     discriminator:add(nn.Linear(128, 2))
     nameLastModParams(discriminator)
@@ -430,8 +440,8 @@ local function createColorGuesserNet(opt, subnets)
     local classProbabilities = cudnn.LogSoftMax()(classProbabilitiesPreLog):annotate({name = 'classProbabilities'})
     local advesaryLoss = nn.ClassNLLCriterion()({classProbabilities, targetCategories}):annotate{name = 'classLoss'}
     
-    local guideLossMul = nn.MulConstant(opt.guideWeight, false)(guideLoss)
-    local advesaryLossMul = nn.MulConstant(opt.advesaryWeight, false)(advesaryLoss)
+    local guideLossMul = nn.MulConstant(opt.guideWeight, true)(guideLoss)
+    local advesaryLossMul = nn.MulConstant(opt.advesaryWeight, true)(advesaryLoss)
     
     -- Full training network including all loss functions
     local colorGuesserNet = nn.gModule({grayscaleImage, targetColorGuide, targetCategories}, {guideLossMul, advesaryLossMul})
@@ -548,11 +558,11 @@ local function createModel(opt)
     r.colorGuesserNet, r.predictedColorGuide, r.guesserClassProbabilities = createColorGuesserNet(opt, subnets)
     r.finalColorizerNet = createFinalColorizerNet(opt, subnets)
     
-    -- local pretrainedColorGuide = torch.load('pretrainedModels/colorGuide' .. opt.colorGuideSize .. '.t7')
-    -- pretrainedColorGuide:clearState()
-    -- transferParams(pretrainedColorGuide, r.colorGuideNet)
-    -- transferParams(pretrainedColorGuide, r.colorGuidePredictionNet)
-    -- transferParams(pretrainedColorGuide, r.finalColorizerNet)
+    local pretrainedColorGuide = torch.load('pretrainedModels/colorGuide' .. opt.colorGuideSize .. '.t7')
+    pretrainedColorGuide:clearState()
+    transferParams(pretrainedColorGuide, r.colorGuideNet)
+    transferParams(pretrainedColorGuide, r.colorGuidePredictionNet)
+    transferParams(pretrainedColorGuide, r.finalColorizerNet)
         
     return r
 end
@@ -588,11 +598,11 @@ local function createVariationalModel(opt)
     r.colorGuesserNet = createVariationalColorGuesserNet(opt, subnets)
     r.finalColorizerNet = createVariationalFinalColorizerNet(opt, subnets)
     
-    -- local pretrainedColorGuide = torch.load('pretrainedModels/colorGuide' .. opt.colorGuideSize .. '.t7')
-    -- pretrainedColorGuide:clearState()
-    -- transferParams(pretrainedColorGuide, r.colorGuideNet)
-    -- transferParams(pretrainedColorGuide, r.colorGuidePredictionNet)
-    -- transferParams(pretrainedColorGuide, r.finalColorizerNet)
+    local pretrainedColorGuide = torch.load('pretrainedModels/colorGuide' .. opt.colorGuideSize .. '.t7')
+    pretrainedColorGuide:clearState()
+    transferParams(pretrainedColorGuide, r.colorGuideNet)
+    transferParams(pretrainedColorGuide, r.colorGuidePredictionNet)
+    transferParams(pretrainedColorGuide, r.finalColorizerNet)
         
     return r
 end

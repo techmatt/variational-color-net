@@ -55,13 +55,14 @@ local function trainColorGuesserSuperBatch(model, imgLoader, opt, epoch)
     
     local parameters, gradParameters = model.colorGuesserNet:getParameters()
     
+    model.colorGuesserNet:training()
     cutorch.synchronize()
 
     local dataLoadingTime = 0
     timer:reset()
 
     local classLabels = torch.IntTensor(opt.batchSize)
-    for i = 1, opt.batchSize do classLabels[i] = 2 end
+    for i = 1, opt.batchSize do classLabels[i] = 1 end
     guesserTargetCategories:resize(classLabels:size()):copy(classLabels)
     
     local guideLossSum, advesaryLossSum, totalLossSum = 0, 0, 0
@@ -82,12 +83,13 @@ local function trainColorGuesserSuperBatch(model, imgLoader, opt, epoch)
             local colorGuideTargets = model.colorEncoder:forward(RGBTargets):clone()
             model.colorEncoder:training()
             
-            --model.colorGuesserNet:training()
-            --model.discriminatorNet:evaluate()
+            model.discriminatorNet:evaluate()
             local outputLoss = model.colorGuesserNet:forward({grayscaleInputs, colorGuideTargets, guesserTargetCategories})
             
-            print('guesser probabilities')
-            print(model.guesserClassProbabilities.data.module.output:clone():exp())
+            if superBatch == 1 then
+                print('guesser probabilities')
+                print(model.guesserClassProbabilities.data.module.output:clone():exp())
+            end
             
             local guideLoss = outputLoss[1][1]
             local advesaryLoss = outputLoss[2][1]
@@ -203,7 +205,7 @@ local function trainDiscriminator(model, imgLoader, opt, epoch)
             
             for i = opt.batchSize / 2 + 1, opt.batchSize do discriminatorColorGuides[i]:copy(colorGuidePredictions[i]) end
             
-            --model.discriminatorNet:training()
+            model.discriminatorNet:training()
             local discriminatorLoss = model.discriminatorNet:forward({discriminatorColorGuides, discriminatorTargetCategories})
             discriminatorLossSum = discriminatorLossSum + discriminatorLoss[1]
             model.discriminatorNet:backward({colorGuideTargets, discriminatorTargetCategories}, discriminatorLoss)
@@ -216,9 +218,17 @@ local function trainDiscriminator(model, imgLoader, opt, epoch)
                 top1Accuracy = torchUtil.top1Accuracy(model.discriminatorProbabilities.data.module.output:clone():exp(), discriminatorTargetCategories)
                 print('discriminator probabilities')
                 print(model.discriminatorProbabilities.data.module.output:clone():exp())
+                if top1Accuracy >= 85 then
+                    print('accuracy too high, skipping discriminator update')
+                    discriminatorLossSum = 0
+                    model.discriminatorNet:zeroGradParameters()
+                    goto earlyOut
+                end
                 --print(discriminatorTargetCategories)
             end
         end
+        
+        ::earlyOut::
         
         return discriminatorLossSum, gradParameters
     end
@@ -274,7 +284,7 @@ local function train(model, imgLoader, opt, epoch)
         weightDecay = params.weightDecay
         }
         optimStateDiscriminator = {
-        learningRate = 1e-3,
+        learningRate = 1e-4,
         weightDecay = 0.0
         }
     end
@@ -293,7 +303,8 @@ local function train(model, imgLoader, opt, epoch)
         batchNumber = batchNumber + 1
         trainColorGuesserSuperBatch(model, imgLoader, opt, epoch)
         --if math.fmod(i - 1, 4) == 0 then
-            trainDiscriminator(model, imgLoader, opt, epoch)
+        --trainDiscriminator(model, imgLoader, opt, epoch)
+        trainDiscriminator(model, imgLoader, opt, epoch)
         --end
     end
     
