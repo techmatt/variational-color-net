@@ -151,6 +151,10 @@ local function createColorEncoder(opt)
     colorEncoder:add(nn.Linear(1024, opt.colorGuideSize))
     nameLastModParams(colorEncoder)
     --colorEncoder:add(nn.Tanh())
+
+    colorEncoder:add(nn.Callback(function(input)
+        print(input:norm(1) / input:nElement())
+    end))
     
     return colorEncoder
 end
@@ -200,6 +204,7 @@ local function createColorGuideNet(opt, subnets)
     local grayscaleImage = nn.Identity()():annotate({name = 'grayscaleImage'})
     local targetRGB = nn.Identity()():annotate({name = 'targetRGB'})
     local targetContent = nn.Identity()():annotate({name = 'targetContent'})
+    local zeros = nn.Identity()():annotate({name = 'zeros'})    -- For MSECriterion target
     
     -- Intermediates
     local grayEncoderOutput = subnets.grayEncoder(grayscaleImage):annotate({name = 'grayEncoderOutput'})
@@ -212,16 +217,19 @@ local function createColorGuideNet(opt, subnets)
     
     print('adding pixel RGB loss')
     local pixelRGBLoss = nn.MSECriterion()({decoderOutput, targetRGB}):annotate({name = 'pixelRGBLoss'})
+    pixelRGBLoss = nn.MulConstant(opt.pixelRGBWeight, true)(pixelRGBLoss)
     
     print('adding content loss')
     local perceptualContent = subnets.vggNet(decoderOutput):annotate({name = 'perceptualContent'})
     local contentLoss = nn.MSECriterion()({perceptualContent, targetContent}):annotate({name = 'contentLoss'})
+    contentLoss = nn.MulConstant(opt.contentWeight, true)(contentLoss)
 
-    local pixelRGBLossMul = nn.MulConstant(opt.pixelRGBWeight, false)(pixelRGBLoss)
-    local contentLossMul = nn.MulConstant(opt.contentWeight, false)(contentLoss)
+    print('adding guide prior')
+    local guidePriorLoss = nn.MSECriterion()({colorEncoderOutput, zeros}):annotate({name = 'guidePriorLoss'})
+    guidePriorLoss = nn.MulConstant(opt.guidePriorWeight, true)(guidePriorLoss)
 
     -- Full training network including all loss functions
-    local colorGuideNet = nn.gModule({grayscaleImage, targetRGB, targetContent}, {pixelRGBLossMul, contentLossMul})
+    local colorGuideNet = nn.gModule({grayscaleImage, targetRGB, targetContent, zeros}, {pixelRGBLoss, contentLoss, guidePriorLoss})
 
     cudnn.convert(colorGuideNet, cudnn)
     colorGuideNet = colorGuideNet:cuda()
@@ -289,7 +297,7 @@ local function createGuesserEncoder(opt)
     return guesserEncoder
 end
 
-local function craeteDiscriminator(opt)
+local function createDiscriminator(opt)
     local discriminator = nn.Sequential()
     discriminator.paramName = 'discriminator'
 
@@ -520,7 +528,7 @@ local function createModel(opt)
         grayEncoder = createGrayEncoder(opt),
         colorEncoder = createColorEncoder(opt),
         guideToFusion = createGuideToFusion(opt),
-        discriminator = craeteDiscriminator(opt),
+        discriminator = createDiscriminator(opt),
         decoder = createDecoder(opt),
         guesserEncoder = createGuesserEncoder(opt),
         vggNet = createVGG(opt)
@@ -540,11 +548,11 @@ local function createModel(opt)
     r.colorGuesserNet, r.predictedColorGuide, r.guesserClassProbabilities = createColorGuesserNet(opt, subnets)
     r.finalColorizerNet = createFinalColorizerNet(opt, subnets)
     
-    local pretrainedColorGuide = torch.load('pretrainedModels/colorGuide' .. opt.colorGuideSize .. '.t7')
-    pretrainedColorGuide:clearState()
-    transferParams(pretrainedColorGuide, r.colorGuideNet)
-    transferParams(pretrainedColorGuide, r.colorGuidePredictionNet)
-    transferParams(pretrainedColorGuide, r.finalColorizerNet)
+    -- local pretrainedColorGuide = torch.load('pretrainedModels/colorGuide' .. opt.colorGuideSize .. '.t7')
+    -- pretrainedColorGuide:clearState()
+    -- transferParams(pretrainedColorGuide, r.colorGuideNet)
+    -- transferParams(pretrainedColorGuide, r.colorGuidePredictionNet)
+    -- transferParams(pretrainedColorGuide, r.finalColorizerNet)
         
     return r
 end
@@ -580,11 +588,11 @@ local function createVariationalModel(opt)
     r.colorGuesserNet = createVariationalColorGuesserNet(opt, subnets)
     r.finalColorizerNet = createVariationalFinalColorizerNet(opt, subnets)
     
-    local pretrainedColorGuide = torch.load('pretrainedModels/colorGuide' .. opt.colorGuideSize .. '.t7')
-    pretrainedColorGuide:clearState()
-    transferParams(pretrainedColorGuide, r.colorGuideNet)
-    transferParams(pretrainedColorGuide, r.colorGuidePredictionNet)
-    transferParams(pretrainedColorGuide, r.finalColorizerNet)
+    -- local pretrainedColorGuide = torch.load('pretrainedModels/colorGuide' .. opt.colorGuideSize .. '.t7')
+    -- pretrainedColorGuide:clearState()
+    -- transferParams(pretrainedColorGuide, r.colorGuideNet)
+    -- transferParams(pretrainedColorGuide, r.colorGuidePredictionNet)
+    -- transferParams(pretrainedColorGuide, r.finalColorizerNet)
         
     return r
 end
