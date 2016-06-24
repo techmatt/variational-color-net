@@ -78,7 +78,7 @@ function M.sampleBatch(imageLoader)
     -- pick an index of the datapoint to load next
     local grayscaleInputs = torch.FloatTensor(opt.batchSize, 1, opt.cropSize, opt.cropSize)
     local RGBTargets = torch.FloatTensor(opt.batchSize, 3, opt.halfCropSize, opt.halfCropSize)
-    local ABTargets = torch.FloatTensor(opt.batchSize, 2, opt.halfCropSize, opt.halfCropSize)
+    local thumbnails = torch.FloatTensor(opt.batchSize, 3, opt.thumbnailSize, opt.thumbnailSize)
     local classLabels = torch.IntTensor(opt.batchSize)
     
     for b = 1, opt.batchSize do
@@ -101,18 +101,21 @@ function M.sampleBatch(imageLoader)
                 grayscale:add(-0.5)
                 
                 local downscaleImg = image.scale(sourceImg, opt.halfCropSize, opt.halfCropSize)
-                
                 local RGBColor = torchUtil.caffePreprocess(downscaleImg:clone())
-                local ABColor = image.rgb2lab(downscaleImg)
-                ABColor = ABColor[{{2,3},{},{}}]:clone()
-                ABColor:mul(1.0 / 100.0)
                 
-                return grayscale, RGBColor, ABColor
+                local thumbnailImg = image.scale(sourceImg, opt.thumbnailSize, opt.thumbnailSize)
+                local thumbnail = image.rgb2lab(thumbnailImg)
+                
+                --[[local ABColor = image.rgb2lab(downscaleImg)
+                ABColor = ABColor[{{2,3},{},{}}]:clone()
+                ABColor:mul(1.0 / 100.0)]]
+                
+                return grayscale, RGBColor, thumbnail
             end,
-            function(grayscale, RGBColor, ABColor)
+            function(grayscale, RGBColor, thumbnail)
                 grayscaleInputs[b] = grayscale
                 RGBTargets[b] = RGBColor
-                ABTargets[b] = ABColor
+                thumbnails[b] = thumbnail
             end)
     end
     donkeys:synchronize()
@@ -120,7 +123,7 @@ function M.sampleBatch(imageLoader)
     local batch = {}
     batch.grayscaleInputs = grayscaleInputs
     batch.RGBTargets = RGBTargets
-    batch.ABTargets = ABTargets
+    batch.thumbnails = thumbnails
     batch.classLabels = classLabels
     return batch
 end

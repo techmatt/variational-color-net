@@ -25,15 +25,17 @@ function M.parse(arg)
     cmd:option('-TVWeight', 1e-5, 'TODO')
     cmd:option('-KLDWeight', 1.0, 'TODO')
     cmd:option('-guideWeight', 1.0, 'TODO')
-    cmd:option('-advesaryWeight', 1.0, 'TODO')
+    cmd:option('-advesaryWeight', 10.0, 'TODO')
     cmd:option('-useRandomness', true, 'TODO')
     cmd:option('-classifierOnly', false, 'TODO')
     cmd:option('colorGuideSize', 512, 'color guide bottleneck size')
+    cmd:option('thumbnailSize', 32, 'thumbnail dimension')
+    cmd:option('thumbnailFeatures', 32 * 32 * 3, 'thumbnail dimension')
     
     cmd:option('-pretrainedTransformModel', 'out/models/transform14.ty', 'TODO')
     
     cmd:option('-manualSeed', 2, 'Manually set RNG seed')
-    cmd:option('-GPU', 1, 'Default preferred GPU')
+    cmd:option('-GPU', 2, 'Default preferred GPU')
     
     ------------- Training options --------------------
     cmd:option('-epochCount',      100,    'Number of total epochs to run')

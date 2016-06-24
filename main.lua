@@ -13,13 +13,15 @@ torch.setdefaulttensortype('torch.FloatTensor')
 cudnn.benchmark = true
 
 local util = require('util')
-local models = require('models')
-local modelsColorGuide = require('modelsColorGuide')
+--local models = require('models')
+--local modelsColorGuide = require('modelsColorGuide')
+local modelsThumbnail = require('modelsThumbnail')
 local torchUtil = require('torchUtil')
 local imageLoader = require('imageLoader')
 --local train = require('train')
 --local train = require('trainColorGuide')
-local train = require('trainColorGuesser')
+--local train = require('trainColorGuesser')
+local train = require('trainThumbnailUpsampler')
 
 --local allImages = util.getFileListRecursive('/home/dritchie/mscoco/')
 --util.writeAllLines(opt.imageList, allImages)
@@ -28,7 +30,8 @@ local train = require('trainColorGuesser')
 --imageLoader.filterAllFileLists(opt)
 
 --local model = models.createModel(opt)
-local model = modelsColorGuide.createModel(opt)
+--local model = modelsColorGuide.createModel(opt)
+local model = modelsThumbnail.createModel(opt)
 
 collectgarbage()
 local imgLoader = imageLoader.makeImageLoader(opt)
