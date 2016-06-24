@@ -14,14 +14,14 @@ local optimState = {
 local function paramsForEpoch(epoch)
     local regimes = {
         -- start, end,    LR,   WD,
-        {  1,     1,   1e-1,   0 },
-        {  2,     2,   1e-2,   0 },
-        {  3,     5,   1e-3,   0 },
-        {  6,     10,   5e-4,   0 },
-        { 11,     20,   2e-5,   0 },
-        { 21,     30,   1e-5,   0 },
-        { 31,     40,   5e-6,   0 },
-        { 41,    1e8,   1e-6,   0 },
+        {  1,     1,   1e-3,   0 },
+        {  2,     2,   1e-3,   0 },
+        {  3,     3,   5e-4,   0 },
+        {  4,     10,   4e-4,   0 },
+        { 11,     20,   2e-4,   0 },
+        { 21,     30,   1e-4,   0 },
+        { 31,     40,   5e-5,   0 },
+        { 41,    1e8,   1e-5,   0 },
     }
 
     for _, row in ipairs(regimes) do
@@ -40,6 +40,7 @@ local epochStats = {}
 -- GPU inputs (preallocate)
 local grayscaleInputs = torch.CudaTensor()
 local RGBTargets = torch.CudaTensor()
+local zeros = nil
 
 local timer = torch.Timer()
 local dataTimer = torch.Timer()
@@ -47,6 +48,12 @@ local dataTimer = torch.Timer()
 
 -- 4. trainSuperBatch - Used by train() to train a superbatch.
 local function trainSuperBatch(model, imgLoader, opt, epoch)
+
+    if zeros == nil then
+        local zerosCPU = torch.Tensor(opt.batchSize, opt.colorGuideSize):fill(0)
+        zeros = torch.CudaTensor()
+        zeros:resize(zerosCPU:size()):copy(zerosCPU)
+    end
     
     local parameters, gradParameters = model.colorGuideNet:getParameters()
     
@@ -55,7 +62,7 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
     local dataLoadingTime = 0
     timer:reset()
 
-    local pixelRGBLossSum, contentLossSum, totalLossSum = 0, 0, 0
+    local pixelRGBLossSum, contentLossSum, guidePriorLossSum, totalLossSum = 0, 0, 0, 0
     local feval = function(x)
         model.colorGuideNet:zeroGradParameters()
         
@@ -71,16 +78,18 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             
             local contentTargets = model.vggNet:forward(RGBTargets):clone()
             
-            local outputLoss = model.colorGuideNet:forward({grayscaleInputs, RGBTargets, contentTargets})
+            local outputLoss = model.colorGuideNet:forward({grayscaleInputs, RGBTargets, contentTargets, zeros})
             
             local pixelRGBLoss = outputLoss[1][1]
             local contentLoss = outputLoss[2][1]
+            local guidePriorLoss = outputLoss[3][1]
             
             pixelRGBLossSum = pixelRGBLossSum + pixelRGBLoss
             contentLossSum = contentLossSum + contentLoss
-            totalLossSum = totalLossSum + pixelRGBLoss + contentLoss
+            guidePriorLossSum = guidePriorLossSum + guidePriorLoss
+            totalLossSum = totalLossSum + pixelRGBLoss + contentLoss + guidePriorLoss
             
-            model.colorGuideNet:backward({grayscaleInputs, RGBTargets, contentTargets}, outputLoss)
+            model.colorGuideNet:backward({grayscaleInputs, RGBTargets, contentTargets, zeros}, outputLoss)
             
             if superBatch == 1 and debugBatchIndices[totalBatchCount] then
                 torchUtil.dumpGraph(model.colorGuideNet, opt.outDir .. 'graphDump' .. totalBatchCount .. '.csv')
@@ -120,6 +129,7 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
     epochStats.total = epochStats.total + totalLossSum
     epochStats.pixelRGB = epochStats.pixelRGB + pixelRGBLossSum
     epochStats.content = epochStats.content + contentLossSum
+    epochStats.guidePrior = epochStats.guidePrior + guidePriorLossSum
     
     print(('Epoch: [%d][%d/%d]\tTime %.3f Err %.4f LR %.0e DataLoadingTime %.3f'):format(
         epoch, batchNumber, opt.epochSize, timer:time().real, totalLossSum,
@@ -127,6 +137,7 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
         
     print(string.format('  RGB loss: %f', pixelRGBLossSum))
     print(string.format('  Content loss: %f', contentLossSum))
+    print(string.format('  Guide prior loss: %f', guidePriorLossSum))
     
     dataTimer:reset()
     totalBatchCount = totalBatchCount + 1
@@ -175,6 +186,7 @@ local function train(model, imgLoader, opt, epoch)
     epochStats.total = 0
     epochStats.pixelRGB = 0
     epochStats.content = 0
+    epochStats.guidePrior = 0
     
     for i = 1, opt.epochSize do
         trainSuperBatch(model, imgLoader, opt, epoch)
@@ -186,11 +198,13 @@ local function train(model, imgLoader, opt, epoch)
     epochStats.total = epochStats.total * scaleFactor
     epochStats.pixelRGB = epochStats.pixelRGB * scaleFactor
     epochStats.content = epochStats.content * scaleFactor
+    epochStats.guidePrior = epochStats.guidePrior * scaleFactor
     
     trainLogger:add{
         ['total loss (train set)'] = epochStats.total,
         ['RGB loss (train set)'] = epochStats.pixelRGB,
-        ['content loss (train set)'] = epochStats.content
+        ['content loss (train set)'] = epochStats.content,
+        ['guide prior loss (train set)'] = epochStats.guidePrior
     }
     print(string.format('Epoch: [%d][TRAINING SUMMARY] Total Time(s): %.2f\t'
         .. 'average loss (per batch): %.2f \t '
