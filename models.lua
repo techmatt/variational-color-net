@@ -178,6 +178,17 @@ local function createParamPredictor(opt)
     pp:add(nn.SpatialConvolution(512, 512, 3, 3, 1, 1, 1, 1))
     pp:add(nn.SpatialConvolution(512, 512, 3, 3, 1, 1, 1, 1))
     return pp
+
+    -- -- [Fully-connected bottleneck version]
+    -- local net = nn.Sequential()
+    -- addConvElement(net, 512, 6, 3, 1, 1)
+    -- net:add(nn.Reshape(4704, true))
+    -- local splitter = nn.ConcatTable()
+    -- splitter:add(nn.Linear(4704, 4704))
+    -- splitter:add(nn.Linear(4704, 4704))
+    -- net:add(splitter)
+    -- return net
+
 end
 
 local function createReparameterizer(opt)
@@ -194,6 +205,13 @@ local function createReparameterizer(opt)
 
     -- Shift and scale the randomness
     local output = nn.CAddTable()({mu, nn.CMulTable()({sigma, randomness})})
+
+    -- -- [Fully-connected bottleneck version]
+    -- local reshapeNet = nn.Sequential()
+    -- reshapeNet:add(nn.Linear(4704, 4704))
+    -- reshapeNet:add(nn.Reshape(6, 28, 28, true))
+    -- addConvElement(reshapeNet, 6, 512, 3, 1, 1)
+    -- output = reshapeNet(output)
 
     return nn.gModule({params, randomness}, {output})
 end

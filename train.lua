@@ -84,6 +84,8 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             local randomnessCPU
             if opt.useRandomness then
                 randomnessCPU = torch.randn(opt.batchSize, 512, 28, 28)
+                -- -- [Fully-connected bottleneck version]
+                -- randomnessCPU = torch.randn(opt.batchSize, 4704)
             else
                 -- one lets it make some use of the sigma terms
                 randomnessCPU = torch.FloatTensor(opt.batchSize, 512, 28, 28):zero():add(1.0)
