@@ -47,15 +47,15 @@ end
 -- We also negate the resulting value, b/c we are minimizing a loss, whereas the 
 --    the dc-ign implementation is maximizing an objective
 
-local KLDCriterion, parent = torch.class('nn.KLDCriterion', 'nn.Module')
+local BasicKLDCriterion, parent = torch.class('nn.BasicKLDCriterion', 'nn.Module')
 
-function KLDCriterion:__init()
+function BasicKLDCriterion:__init()
    parent.__init(self)
    self.output = torch.Tensor(1)
    self.sizeAverage = true  -- average over batch
 end
 
-function KLDCriterion:updateOutput(input)
+function BasicKLDCriterion:updateOutput(input)
     -- 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
     self.term1 = self.term1 or input[1].new()
     self.term2 = self.term2 or input[2].new()
@@ -92,7 +92,7 @@ function KLDCriterion:updateOutput(input)
     return self.output
 end
 
-function KLDCriterion:updateGradInput(input, gradOutput)
+function BasicKLDCriterion:updateGradInput(input, gradOutput)
     self.gradInput = {}
 
     -- self.gradInput[1] = input[1]:clone():fill(0)

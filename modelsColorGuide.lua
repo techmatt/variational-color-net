@@ -490,7 +490,7 @@ local function createVariationalColorGuesserNet(opt, subnets)
     local guideLoss = nn.MSECriterion()({xformedSample, targetColorGuide}):annotate({name = 'guideLoss'})
 
     print('adding KLD loss')
-    local kldLoss = nn.KLDCriterion()(predictedParams):annotate({name = 'kldLoss'})
+    local kldLoss = nn.BasicKLDCriterion()(predictedParams):annotate({name = 'kldLoss'})
     kldLoss = nn.MulConstant(opt.KLDWeight, true)(kldLoss)
     
     -- Full training network including all loss functions

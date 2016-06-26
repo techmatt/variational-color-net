@@ -299,7 +299,7 @@ local function createTrainingNet(opt, subnets)
     local contentLoss = nn.MSECriterion()({perceptualContent, targetContent}):annotate({name = 'contentLoss'})
 
     print('adding KLD loss')
-    local kldLoss = nn.KLDCriterion()({params}):annotate({name = 'kldLoss'})
+    local kldLoss = nn.BasicKLDCriterion()({params}):annotate({name = 'kldLoss'})
     
     local classLosMul = nn.MulConstant(opt.classWeight, true)(classLoss)
     local pixelRGBLossMul = nn.MulConstant(opt.pixelRGBWeight, true)(pixelRGBLoss)
