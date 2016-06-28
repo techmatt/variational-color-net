@@ -4,6 +4,8 @@
 local KLDCriterion, parent = torch.class('nn.KLDCriterion', 'nn.Module')
 
 -- Table of four inputs: mu1, logv1, mu2, logv2
+-- Compute KL(p2 | p1)
+-- (So for our purposes, p1 = prior, p2 = encoder)
 function KLDCriterion:updateOutput(inputs)
    
    local mu1 = inputs[1]:clone()
@@ -39,7 +41,7 @@ function KLDCriterion:updateGradInput(inputs, gradOutput)
    local dlogv2 = div12:mul(-1):add(1):add(-diff12:pow(2):cdiv(v2)):div(2)
 
    -- return grad w.r.t. input first
-   local gradOut = gradOutput[1]
+   local gradOut = (type(gradOutput) == 'number') and gradOutput or gradOutput[1]
    self.gradInput = {
       dmu2:mul(gradOut),
       dlogv2:mul(gradOut),

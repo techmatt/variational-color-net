@@ -36,7 +36,8 @@ function M.parse(arg)
     cmd:option('-pretrainedTransformModel', 'out/models/transform14.ty', 'TODO')
     
     cmd:option('-manualSeed', 2, 'Manually set RNG seed')
-    cmd:option('-GPU', 2, 'Default preferred GPU')
+    -- cmd:option('-GPU', 2, 'Default preferred GPU')
+    cmd:option('-GPU', 1, 'Default preferred GPU')
     
     ------------- Training options --------------------
     cmd:option('-epochCount',      100,    'Number of total epochs to run')

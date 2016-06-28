@@ -1,5 +1,7 @@
-require 'KLDCriterion'
-require 'GaussianSampler'
+require 'cvae/modules/KLDCriterion'
+require 'cvae/modules/GaussianSampler'
+
+require 'nnModules'
 
 -- Just do fully-connected on really small images for now
 
@@ -51,31 +53,44 @@ local function createTrainNet(opt, subnets)
 	-- Inputs
 	local grayscale = nn.Identity()()
 	local color = nn.Identity()()
-	grayscale = nn.Reshape(linearSize, true)(grayscale)
-	color = nn.Reshape(2*linearSize, true)(grayscale)
+	local grayscaleFlat = nn.Reshape(linearSize, true)(grayscale)
+	local colorFlat = nn.Reshape(2*linearSize, true)(color)
 
 	-- Intermediates
-	local encMu, encSigma = subnets.encoder({grayscale, color}):split(2)
-	local priorMu, priorSigma = subnets.conditionalPrior(grayscale):split(2)
+	local encMu, encSigma = subnets.encoder({grayscaleFlat, colorFlat}):split(2)
+	local priorMu, priorSigma = subnets.conditionalPrior(grayscaleFlat):split(2)
 	local code = subnets.sampler({encMu, encSigma})
-	local decodedColor = subnets.decoder({grayscale, code})
-	decodedColor = nn.Reshape(imgSize, imgSize, 2, true)(decodedColor)
+	local decodedColorFlat = subnets.decoder({grayscaleFlat, code})
+	local decodedColor = nn.Reshape(imgSize, imgSize, 2, true)(decodedColorFlat)
 
 	-- Losses
-	
+	local reconstructionLoss = nn.BCECriterion()({decodedColor, color})
+	-- local reconstructionLoss = nn.MSECriterion()({decodedColor, color})
+	local kldLoss = nn.KLDCriterion()({priorMu, priorSigma, encMu, encSigma})
+
+	local net = nn.gModule({grayscale, color}, {reconstructionLoss, kldLoss})
+	cudnn.convert(net, cudnn)
+	return net:cuda()
 end
 
 local function createTestNet(opt, subnets)
-	
-end
+	local imgSize = opt.thumbnailSize
+	local linearSize = imgSize*imgSize
 
--- Compile a nn graph into a module and GPU-ify it
-local function compile(graph)
+	-- Inputs
+	local grayscale = nn.Identity()()
+	local grayscaleFlat = nn.Reshape(linearSize, true)(grayscale)
 
+	-- Intermediates
+	local priorMu, priorSigma = subnets.conditionalPrior(grayscaleFlat):split(2)
+	local code = subnets.sampler({priorMu, priorSigma})
+	local decodedColorFlat = subnets.decoder({grayscaleFlat, code})
+	local decodedColor = nn.Reshape(imgSize, imgSize, 2, true)(decodedColorFlat)
+
+	local net = nn.gModule({grayscale}, {decodedColor})
 	cudnn.convert(net, cudnn)
-    return net:cuda()
+	return net:cuda()
 end
-
 
 local function createModel(opt)
 	local imgw = opt.thumbnailSize
@@ -88,9 +103,9 @@ local function createModel(opt)
 	-- hidden_size is the size of hidden layers in the NNs
 	local hidden_size = 500
 	local subnets = {
-		encoder = createEncoder(x_size, y_size, z_size, hidden_size)
-		conditionalPrior = createConditionalPrior(x_size, z_size, hidden_size)
-		sampler = nn.GaussianSampler()
+		encoder = createEncoder(x_size, y_size, z_size, hidden_size),
+		conditionalPrior = createConditionalPrior(x_size, z_size, hidden_size),
+		sampler = nn.GaussianSampler(),
 		decoder = createDecoder(x_size, y_size, z_size, hidden_size)
 	}
 
@@ -100,5 +115,8 @@ local function createModel(opt)
 	return M
 end
 
+return {
+	createModel = createModel
+}
 
 

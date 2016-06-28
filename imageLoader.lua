@@ -1,6 +1,6 @@
 
 local threadPool = require('threadPool')
-local util = require('util')
+local util = require('./util')
 local torchUtil = require('torchUtil')
 
 local M = {}
