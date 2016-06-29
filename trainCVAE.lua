@@ -65,7 +65,11 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             dataLoadingTime = dataLoadingTime + (loadTimeEnd - loadTimeStart)
 
             -- Split batch thumbnails into L and a,b
+            -- Normalize to [0, 1]
             local thumbs = batch.thumbnails
+            for i = 1, opt.batchSize do
+                torchUtil.normalizeLab(thumbs[i])
+            end
             local grayscale = thumbs[{ {},1,{},{} }]
             local color = thumbs[{ {},{2,3},{},{} }]
             
@@ -76,7 +80,7 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             local outputLoss = model.trainNet:forward({grayscaleInputs, colorTargets})
             
             local reconLoss = outputLoss[1][1]
-            local kldLoss = outputLoss[2]
+            local kldLoss = outputLoss[2][1]
             
             reconLossSum = reconLossSum + reconLoss
             kldLossSum = kldLossSum + kldLoss
@@ -95,7 +99,7 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             
                 -- Save ground truth RGB image
                 local inClone = thumbs[1]:clone()
-                inClone = image.lab2rgb(inClone)
+                inClone = image.lab2rgb(torchUtil.denormalizeLab(inClone))
                 image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_groundTruth.jpg', inClone)
                 
                 collectgarbage()
@@ -114,7 +118,7 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
                 for sampleIndex = 1, opt.numTestSamples do
                     local prediction = predictionsFullColor[sampleIndex]
                     local predictionCPU = torch.Tensor(prediction:size()):copy(prediction)
-                    predictionCPU = image.lab2rgb(predictionCPU)
+                    predictionCPU = image.lab2rgb(torchUtil.denormalizeLab(predictionCPU))
                     image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_sample' .. sampleIndex .. '_predictedGuideRGBSmall.jpg', predictionCPU)
                 end
                 

@@ -472,6 +472,28 @@ local function top1Accuracy(classProbabilities, targetClasses)
     return top1
 end
 
+local function normalizeLab(img)
+    -- L range: [0, 100]
+    img[1]:div(100)
+    -- a range: [-86.185, 98.254]
+    img[2]:csub(-86.185):div(98.254 + 86.185)
+    -- b range: [-107.863, 94.482]
+    img[3]:csub(-107.863):div(107.863 + 94.482)
+
+    return img
+end
+
+local function denormalizeLab(img)
+    -- L range: [0, 100]
+    img[1]:mul(100)
+    -- a range: [-86.185, 98.254]
+    img[2]:mul(98.254 + 86.185):add(-86.185)
+    -- b range: [-107.863, 94.482]
+    img[3]:mul(107.863 + 94.482):add(-107.863)
+
+    return img
+end
+
 return {
     getSize = getSize,
     describeNet = describeNet,
@@ -490,5 +512,7 @@ return {
     vibrancyTest = vibrancyTest,
     filterFileList = filterFileList,
     top1Accuracy = top1Accuracy,
+    normalizeLab = normalizeLab,
+    denormalizeLab = denormalizeLab,
 }
 

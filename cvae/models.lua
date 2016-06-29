@@ -1,8 +1,6 @@
 require 'cvae/modules/KLDCriterion'
 require 'cvae/modules/GaussianSampler'
 
-require 'nnModules'
-
 -- Just do fully-connected on really small images for now
 
 local function createEncoder(x_size, y_size, z_size, hidden_size)
@@ -64,8 +62,8 @@ local function createTrainNet(opt, subnets)
 	local decodedColor = nn.Reshape(imgSize, imgSize, 2, true)(decodedColorFlat)
 
 	-- Losses
-	local reconstructionLoss = nn.BCECriterion()({decodedColor, color})
-	-- local reconstructionLoss = nn.MSECriterion()({decodedColor, color})
+	local reconstructionLoss = nn.BCECriterion(nil, false)({decodedColor, color})
+	-- local reconstructionLoss = nn.MSECriterion(false)({decodedColor, color})
 	local kldLoss = nn.KLDCriterion()({priorMu, priorSigma, encMu, encSigma})
 
 	local net = nn.gModule({grayscale, color}, {reconstructionLoss, kldLoss})
