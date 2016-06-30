@@ -16,16 +16,23 @@ local util = require('util')
 local torchUtil = require('torchUtil')
 local imageLoader = require('imageLoader')
 
---local models = require('models')
---local modelsColorGuide = require('modelsColorGuide')
--- local modelsThumbnail = require('modelsThumbnail')
-local modelsCVAE = require('cvae/models')
 
+--local models = require('models')
 --local train = require('train')
+
+--local models = require('modelsColorGuide')
 --local train = require('trainColorGuide')
 --local train = require('trainColorGuesser')
+
+-- local models = require('modelsThumbnail')
 -- local train = require('trainThumbnailUpsampler')
-local train = require('trainCVAE')
+
+-- local models = require('cvae/models/simple.lua')
+-- local train = require('cvae/train_simple.lua')
+
+local models = require('cvae/models/fullResGrayscale.lua')
+local train = require('cvae/train_fullResGrayscale.lua')
+
 
 --local allImages = util.getFileListRecursive('/home/dritchie/mscoco/')
 --util.writeAllLines(opt.imageList, allImages)
@@ -33,10 +40,7 @@ local train = require('trainCVAE')
 --util.listFilesByDir('/home/mdfisher/ssd2/Places/images256/', 'data/places')
 --imageLoader.filterAllFileLists(opt)
 
---local model = models.createModel(opt)
---local model = modelsColorGuide.createModel(opt)
--- local model = modelsThumbnail.createModel(opt)
-local model = modelsCVAE.createModel(opt)
+local model = models.createModel(opt)
 
 collectgarbage()
 local imgLoader = imageLoader.makeImageLoader(opt)

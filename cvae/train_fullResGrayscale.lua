@@ -41,9 +41,6 @@ local epochStats = {}
 local grayscaleInputs = torch.CudaTensor()
 local colorTargets = torch.CudaTensor()
 
-local timer = torch.Timer()
-local dataTimer = torch.Timer()
-
 -- 4. trainSuperBatch - Used by train() to train a superbatch.
 local function trainSuperBatch(model, imgLoader, opt, epoch)
     
@@ -52,25 +49,21 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
     cutorch.synchronize()
 
     local dataLoadingTime = 0
-    timer:reset()
+    local startTime = os.clock()
 
     local reconLossSum, kldLossSum, totalLossSum = 0, 0, 0
     local feval = function(x)
         model.trainNet:zeroGradParameters()
         
         for superBatch = 1, opt.superBatches do
-            local loadTimeStart = dataTimer:time().real
+            local loadTimeStart = os.clock()
             local batch = imageLoader.sampleBatch(imgLoader)
-            local loadTimeEnd = dataTimer:time().real
+            local loadTimeEnd = os.clock()
             dataLoadingTime = dataLoadingTime + (loadTimeEnd - loadTimeStart)
 
-            -- Split batch thumbnails into L and a,b
-            -- Normalize to [0, 1]
-            local thumbs = batch.thumbnails
-            for i = 1, opt.batchSize do
-                torchUtil.normalizeLab(thumbs[i])
-            end
-            local grayscale = thumbs[{ {},1,{},{} }]
+            -- Split images into L and a,b
+            local grayscale = batch.grayscaleInputs     -- Using full-size Y instead of L b/c it's cheaper
+            local thumbs = batch.normalizedThumbnails
             local color = thumbs[{ {},{2,3},{},{} }]
             
             -- transfer over to GPU
@@ -78,7 +71,11 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             colorTargets:resize(color:size()):copy(color)
             
             local outputLoss = model.trainNet:forward({grayscaleInputs, colorTargets})
-            
+            -- This is the weight ratio implied by my first ever experiment, where I didn't sizeAverage
+            --    the losses. There's nothing sacred about this number, but I liked the color variety it
+            --    gave in that early experiment. Feel free to fudge with it.
+            outputLoss[1]:mul(204.8)
+
             local reconLoss = outputLoss[1][1]
             local kldLoss = outputLoss[2][1]
             
@@ -98,9 +95,8 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
                 model.testNet:evaluate()
             
                 -- Save ground truth RGB image
-                local inClone = thumbs[1]:clone()
-                inClone = image.lab2rgb(torchUtil.denormalizeLab(inClone))
-                image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_groundTruth.jpg', inClone)
+                local groundTruth = batch.images[1]
+                image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_groundTruth.jpg', groundTruth)
                 
                 collectgarbage()
 
@@ -111,15 +107,21 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
                 end
                 
                 local predictions = model.testNet:forward(grayscaleInputs)
-                local predictionsFullColor = torch.CudaTensor(thumbs:size())
-                predictionsFullColor[{ {},1,{},{} }] = grayscaleInputs
-                predictionsFullColor[{ {},{2,3},{},{} }] = predictions
 
+                -- Compute ground truth L
+                local groundTruthLab = torchUtil.normalizeLab(image.rgb2lab(groundTruth:clone()))
+                local norm = groundTruthLab:norm()
                 for sampleIndex = 1, opt.numTestSamples do
-                    local prediction = predictionsFullColor[sampleIndex]
+                    local prediction = predictions[sampleIndex]
                     local predictionCPU = torch.Tensor(prediction:size()):copy(prediction)
-                    predictionCPU = image.lab2rgb(torchUtil.denormalizeLab(predictionCPU))
-                    image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_sample' .. sampleIndex .. '_predictedGuideRGBSmall.jpg', predictionCPU)
+                    -- Rescale color to be same size as groundTruthL, then combine
+                    predictionCPU = image.scale(predictionCPU, groundTruthLab:size()[2], groundTruthLab:size()[3])
+                    local fullColorPred = torch.Tensor(groundTruthLab:size())
+                    fullColorPred[1]:copy(groundTruthLab[1])
+                    fullColorPred[2] = predictionCPU[1]
+                    fullColorPred[3] = predictionCPU[2]
+                    fullColorPred = image.lab2rgb(torchUtil.denormalizeLab(fullColorPred))
+                    image.save(opt.outDir .. 'samples/iter' .. totalBatchCount .. '_sample' .. sampleIndex .. '_predictedGuideRGBSmall.jpg', fullColorPred)
                 end
                 
                 model.testNet:training()
@@ -137,14 +139,15 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
     epochStats.recon = epochStats.recon + reconLossSum
     epochStats.kld = epochStats.kld + kldLossSum
     
+    -- local totalTime = timer:time().real
+    local totalTime = os.clock() - startTime;
     print(('Epoch: [%d][%d/%d]\tTime %.3f Err %.4f LR %.0e DataLoadingTime %.3f'):format(
-        epoch, batchNumber, opt.epochSize, timer:time().real, totalLossSum,
+        epoch, batchNumber, opt.epochSize, totalTime, totalLossSum,
         optimState.learningRate, dataLoadingTime))
         
-    print(string.format('  Guide loss: %f', reconLossSum))
+    print(string.format('  Reconstruction loss: %f', reconLossSum))
     print(string.format('  KLD loss: %f', kldLossSum))
     
-    dataTimer:reset()
     totalBatchCount = totalBatchCount + 1
 end
 

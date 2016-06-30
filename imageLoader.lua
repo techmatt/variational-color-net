@@ -76,9 +76,12 @@ function M.sampleBatch(imageLoader)
     local donkeys = imageLoader.donkeys
 
     -- pick an index of the datapoint to load next
+    local sourceImages = torch.FloatTensor(opt.batchSize, 3, opt.cropSize, opt.cropSize)
     local grayscaleInputs = torch.FloatTensor(opt.batchSize, 1, opt.cropSize, opt.cropSize)
     local RGBTargets = torch.FloatTensor(opt.batchSize, 3, opt.halfCropSize, opt.halfCropSize)
+    -- local LABImages = torch.FloatTensor(opt.batchSize, 3, opt.cropSize, opt.cropSize)
     local thumbnails = torch.FloatTensor(opt.batchSize, 3, opt.thumbnailSize, opt.thumbnailSize)
+    local normalizedThumbnails = torch.FloatTensor(opt.batchSize, 3, opt.thumbnailSize, opt.thumbnailSize)
     local classLabels = torch.IntTensor(opt.batchSize)
     
     for b = 1, opt.batchSize do
@@ -105,25 +108,36 @@ function M.sampleBatch(imageLoader)
                 
                 local thumbnailImg = image.scale(sourceImg, opt.thumbnailSize, opt.thumbnailSize)
                 local thumbnail = image.rgb2lab(thumbnailImg)
+                local thumbnailNorm = torchUtil.normalizeLab(thumbnail)
+
+                -- local LABColor = torchUtil.normalizeLab(image.rgb2lab(sourceImg))
                 
                 --[[local ABColor = image.rgb2lab(downscaleImg)
                 ABColor = ABColor[{{2,3},{},{}}]:clone()
                 ABColor:mul(1.0 / 100.0)]]
                 
-                return grayscale, RGBColor, thumbnail
+                -- return sourceImg, grayscale, RGBColor, LABColor, thumbnail, thumbnailNorm
+                return sourceImg, grayscale, RGBColor, thumbnail, thumbnailNorm
             end,
-            function(grayscale, RGBColor, thumbnail)
+            -- function(sourceImg, grayscale, RGBColor, LABColor, thumbnail, thumbnailNorm)
+            function(sourceImg, grayscale, RGBColor, thumbnail, thumbnailNorm)
+                sourceImages[b] = sourceImg
                 grayscaleInputs[b] = grayscale
                 RGBTargets[b] = RGBColor
+                -- LABImages[b] = LABColor
                 thumbnails[b] = thumbnail
+                normalizedThumbnails[b] = thumbnailNorm
             end)
     end
     donkeys:synchronize()
     
     local batch = {}
+    batch.images = sourceImages
     batch.grayscaleInputs = grayscaleInputs
     batch.RGBTargets = RGBTargets
+    -- batch.LABImages = LABImages
     batch.thumbnails = thumbnails
+    batch.normalizedThumbnails = normalizedThumbnails
     batch.classLabels = classLabels
     return batch
 end

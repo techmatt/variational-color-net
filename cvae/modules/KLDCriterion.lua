@@ -3,8 +3,9 @@
 
 local KLDCriterion, parent = torch.class('nn.KLDCriterion', 'nn.Module')
 
-function KLDCriterion:__init()
+function KLDCriterion:__init(sizeAverage)
    parent.__init(self)
+   self.sizeAverage = (sizeAverage == nil) and false or sizeAverage
    self.output = torch.Tensor(1)
 end
 
@@ -22,6 +23,10 @@ function KLDCriterion:updateOutput(inputs)
    
    self.output[1] = (torch.add(logv2, -logv1):add(-1):addcdiv(v1, v2):
                      addcdiv((mu2 - mu1):pow(2), v2)):sum() * 0.5
+
+   if self.sizeAverage then
+      self.output[1] = self.output[1] / inputs[1]:nElement()
+   end
 
    return self.output
 end
@@ -47,13 +52,15 @@ function KLDCriterion:updateGradInput(inputs, gradOutput)
    -- be careful: use of inplace
    local dlogv2 = div12:mul(-1):add(1):add(-diff12:pow(2):cdiv(v2)):div(2)
 
-   -- return grad w.r.t. input first
-   local gradOut = (type(gradOutput) == 'number') and gradOutput or gradOutput[1]
+   local mulFac = (type(gradOutput) == 'number') and gradOutput or gradOutput[1]
+   if self.sizeAverage then
+      mulFac = mulFac / inputs[1]:nElement()
+   end
    self.gradInput = {
-      dmu2:mul(gradOut),
-      dlogv2:mul(gradOut),
-      dmu1:mul(gradOut),
-      dlogv1:mul(gradOut)
+      dmu2:mul(mulFac),
+      dlogv2:mul(mulFac),
+      dmu1:mul(mulFac),
+      dlogv1:mul(mulFac)
    }
 
    return self.gradInput

@@ -62,9 +62,10 @@ local function createTrainNet(opt, subnets)
 	local decodedColor = nn.Reshape(imgSize, imgSize, 2, true)(decodedColorFlat)
 
 	-- Losses
-	local reconstructionLoss = nn.BCECriterion(nil, false)({decodedColor, color})
-	-- local reconstructionLoss = nn.MSECriterion(false)({decodedColor, color})
-	local kldLoss = nn.KLDCriterion()({priorMu, priorSigma, encMu, encSigma})
+	local sizeAverage = true
+	local reconstructionLoss = nn.BCECriterion(nil, sizeAverage)({decodedColor, color})
+	-- local reconstructionLoss = nn.MSECriterion(sizeAverage)({decodedColor, color})
+	local kldLoss = nn.KLDCriterion(sizeAverage)({priorMu, priorSigma, encMu, encSigma})
 
 	local net = nn.gModule({grayscale, color}, {reconstructionLoss, kldLoss})
 	cudnn.convert(net, cudnn)
@@ -98,6 +99,7 @@ local function createModel(opt)
 	local y_size = x_size * 2
 	-- z is the latent code bottleneck size
 	local z_size = 10	-- no idea what this should be...
+	-- local z_size = 1	-- no idea what this should be...
 	-- hidden_size is the size of hidden layers in the NNs
 	local hidden_size = 500
 	local subnets = {
