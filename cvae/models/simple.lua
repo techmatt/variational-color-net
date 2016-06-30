@@ -62,7 +62,7 @@ local function createTrainNet(opt, subnets)
 	local decodedColor = nn.Reshape(imgSize, imgSize, 2, true)(decodedColorFlat)
 
 	-- Losses
-	local sizeAverage = true
+	local sizeAverage = false
 	local reconstructionLoss = nn.BCECriterion(nil, sizeAverage)({decodedColor, color})
 	-- local reconstructionLoss = nn.MSECriterion(sizeAverage)({decodedColor, color})
 	local kldLoss = nn.KLDCriterion(sizeAverage)({priorMu, priorSigma, encMu, encSigma})

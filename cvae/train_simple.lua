@@ -44,10 +44,14 @@ local colorTargets = torch.CudaTensor()
 local timer = torch.Timer()
 local dataTimer = torch.Timer()
 
+-- Parameters for training (will be filled in during first training iteration)
+local parameters, gradParameters = nil, nil
+
 -- 4. trainSuperBatch - Used by train() to train a superbatch.
 local function trainSuperBatch(model, imgLoader, opt, epoch)
-    
-    local parameters, gradParameters = model.trainNet:getParameters()
+    if parameters == nil then
+        parameters, gradParameters = model.trainNet:getParameters()
+    end
     
     cutorch.synchronize()
 
@@ -74,10 +78,10 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             colorTargets:resize(color:size()):copy(color)
             
             local outputLoss = model.trainNet:forward({grayscaleInputs, colorTargets})
-            -- This is the weight ratio implied by my first ever experiment, where I didn't sizeAverage
-            --    the losses. There's nothing sacred about this number, but I liked the color variety it
-            --    gave in that early experiment. Feel free to fudge with it.
-            outputLoss[1]:mul(204.8)
+            -- -- This is the weight ratio implied by my first ever experiment, where I didn't sizeAverage
+            -- --    the losses. There's nothing sacred about this number, but I liked the color variety it
+            -- --    gave in that early experiment. Feel free to fudge with it.
+            -- outputLoss[1]:mul(204.8)
             
             local reconLoss = outputLoss[1][1]
             local kldLoss = outputLoss[2][1]

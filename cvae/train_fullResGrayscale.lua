@@ -41,10 +41,14 @@ local epochStats = {}
 local grayscaleInputs = torch.CudaTensor()
 local colorTargets = torch.CudaTensor()
 
+-- Parameters for training (will be filled in during first training iteration)
+local parameters, gradParameters = nil, nil
+
 -- 4. trainSuperBatch - Used by train() to train a superbatch.
 local function trainSuperBatch(model, imgLoader, opt, epoch)
-    
-    local parameters, gradParameters = model.trainNet:getParameters()
+    if parameters == nil then
+        parameters, gradParameters = model.trainNet:getParameters()
+    end
     
     cutorch.synchronize()
 
@@ -71,10 +75,12 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
             colorTargets:resize(color:size()):copy(color)
             
             local outputLoss = model.trainNet:forward({grayscaleInputs, colorTargets})
-            -- This is the weight ratio implied by my first ever experiment, where I didn't sizeAverage
-            --    the losses. There's nothing sacred about this number, but I liked the color variety it
-            --    gave in that early experiment. Feel free to fudge with it.
-            outputLoss[1]:mul(204.8)
+            -- Trying to figure out how much to weight these things...
+            local reconLossWeight = 10
+            -- local reconLossWeight = 1
+            local kldLossWeight = 1
+            outputLoss[1]:mul(reconLossWeight)
+            outputLoss[2]:mul(kldLossWeight)
 
             local reconLoss = outputLoss[1][1]
             local kldLoss = outputLoss[2][1]
@@ -139,7 +145,6 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
     epochStats.recon = epochStats.recon + reconLossSum
     epochStats.kld = epochStats.kld + kldLossSum
     
-    -- local totalTime = timer:time().real
     local totalTime = os.clock() - startTime;
     print(('Epoch: [%d][%d/%d]\tTime %.3f Err %.4f LR %.0e DataLoadingTime %.3f'):format(
         epoch, batchNumber, opt.epochSize, totalTime, totalLossSum,
@@ -147,6 +152,12 @@ local function trainSuperBatch(model, imgLoader, opt, epoch)
         
     print(string.format('  Reconstruction loss: %f', reconLossSum))
     print(string.format('  KLD loss: %f', kldLossSum))
+
+    trainLogger:add{
+        ['Total Loss'] = totalLossSum,
+        ['Reconstruction Loss'] = reconLossSum,
+        ['KLD Loss'] = kldLossSum
+    }
     
     totalBatchCount = totalBatchCount + 1
 end
@@ -157,6 +168,8 @@ local function train(model, imgLoader, opt, epoch)
     -- Initialize logging stuff
     if trainLogger == nil then
         trainLogger = optim.Logger(paths.concat(opt.outDir, 'train.log'))
+        -- Put symlink to this log in the root directory
+        os.execute('ln -sf ' .. opt.outDir .. 'train.log train.log')
     end
     batchNumber = 0
 
@@ -196,11 +209,11 @@ local function train(model, imgLoader, opt, epoch)
     epochStats.recon = epochStats.recon * scaleFactor
     epochStats.kld = epochStats.kld * scaleFactor
     
-    trainLogger:add{
-        ['total loss (train set)'] = epochStats.total,
-        ['guide loss (train set)'] = epochStats.recon,
-        ['kld loss (train set)'] = epochStats.kld
-    }
+    -- trainLogger:add{
+    --     ['total loss (train set)'] = epochStats.total,
+    --     ['guide loss (train set)'] = epochStats.recon,
+    --     ['kld loss (train set)'] = epochStats.kld
+    -- }
     print(string.format('Epoch: [%d][TRAINING SUMMARY] Total Time(s): %.2f\t'
         .. 'average loss (per batch): %.2f \t '
         .. 'accuracy(%%):\t top-1 %.2f\t',
